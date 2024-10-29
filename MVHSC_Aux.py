@@ -1,7 +1,6 @@
 # This file aims to collect the auxiliary function of MVHSC.
 
 import os
-from sys import warnoptions
 
 os.environ["OMP_NUM_THREADS"] = "1"
 
@@ -145,7 +144,8 @@ class data_importation:
         # 按照文件名生成数据
         data0 = self.data
         sources = self.sources
-        data = {"view_num":self.view_num, "sources":sources, "mapping1":self.mapping1, "cluster_num": self.cluster_num}
+        data = {"view_num":self.view_num, "sources":sources,
+                            "mapping1":self.mapping1, "cluster_num": self.cluster_num}
         match self.view_num:
             case 1:
                 for view in sources:
@@ -177,7 +177,9 @@ class data_importation:
 class initialization():
 
     def __init__(self, DI):
-        self.mapping2 = ["star","var"]
+        self.mapping2 = ["UL","LL"]
+        self.mapping1 = DI.mapping1
+        self.view2 = DI.view2
         self.data = DI.get_data()
         self.device = DI.device
 
@@ -206,9 +208,10 @@ class initialization():
         F = {}
         match data["view_num"]:
             case 2:
-                i,j = 0,1
-                for k in [0,1]:
-                    Theta[f"{self.mapping2[k]}"], F[f"{self.mapping2[k]}"] = self.get_Theta_and_F(data[f"{sources[k]}_mtx_{sources[i]}_{sources[j]}"], p)
+                l = 0
+                for i,j,k in self.mapping1[self.view2:self.view2+2]:
+                    Theta[f"{self.mapping2[l]}"], F[f"{self.mapping2[l]}"] = self.get_Theta_and_F(data[f"{sources[k]}_mtx_{sources[i]}_{sources[j]}"], p)
+                    l += 1
 
         if backend=="torch":
             Theta = {key: torch.from_numpy(value) for key, value in Theta.items()}
@@ -257,24 +260,24 @@ class initialization():
         return Theta, F
 
 class lower_level(nn.Module):
-    def __init__(self, F_var):
-        # 变量是F_var，也是原来的F
+    def __init__(self, F_LL):
+        # 变量是F_LL也是原来的F
         super().__init__()
 
-        self.F_var = nn.Parameter(F_var)
+        self.F_LL = nn.Parameter(F_LL)
 
-    def forward(self,F_star, Theta, lambda_r):
-        term1 = torch.trace(self.F_var.T @ Theta @ self.F_var)
-        term2 = lambda_r * torch.trace(self.F_var @ self.F_var.T @ F_star @ F_star.T)
+    def forward(self,F_UL, Theta, lambda_r):
+        term1 = torch.trace(self.F_LL.T @ Theta @ self.F_LL)
+        term2 = lambda_r * torch.trace(self.F_LL @ self.F_LL.T @ F_UL @ F_UL.T)
         return -term1 - term2
 
 class upper_level(nn.Module):
-    def __init__(self, F_star):
+    def __init__(self, F_UL):
         super().__init__()
-        self.F_star = nn.Parameter(F_star)
+        self.F_UL = nn.Parameter(F_UL)
 
-    def forward(self,F_var, lambda_r):
-        term = lambda_r * torch.trace(F_var @ F_var.T @ self.F_star @ self.F_star.T)
+    def forward(self,F_LL, lambda_r):
+        term = lambda_r * torch.trace(F_LL @ F_LL.T @ self.F_UL @ self.F_UL.T)
         return -term
 
 
@@ -319,7 +322,11 @@ class clustering():
 
 class evaluation():
 
-    def __init__(self):
+    def __init__(self, DI, CL):
+        self.cluster = CL.cluster
+        self.data = DI.get_data()
+        self.mapping1 = DI.mapping1
+        self.view2 = DI.view2
         mapping = {
             "business": 1,
             "entertainment": 2,
@@ -330,6 +337,15 @@ class evaluation():
         }
         self.mapping = mapping
 
+    def assess(self, data1):
+        i,j = self.mapping1[self.view2][0:2]
+        sources = self.data["sources"]
+        labels_pred = self.cluster(data1, self.data["cluster_num"])
+        labels_true = self.data[f"labels_true_{sources[i]}_{sources[j]}"]
+        nmi = self.calculate_nmi(labels_true, labels_pred)
+        ari = self.calculate_ari(labels_true, labels_pred)
+        return nmi, ari
+
     def replace(self, labels):
         replaced_list = [self.mapping[item] for item in labels]
         return replaced_list
@@ -339,7 +355,7 @@ class evaluation():
         return normalized_mutual_info_score(labels_true, labels_pred,average_method=method)
 
     def calculate_ari(self, labels_true, labels_pred):
-        return adjusted_rand_score(labels_real, labels_pred)
+        return adjusted_rand_score(labels_true, labels_pred)
 
 
 class test_part():

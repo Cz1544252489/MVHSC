@@ -23,7 +23,7 @@ LL = lower_level(F["var"])
 LLOP = Adam(LL.parameters(), lr = learning_rate)
 
 UL = upper_level(F["star"])
-ULOP = Adam(UL.parameters(), lr = learning_rate)
+ULOP = SGD(UL.parameters(), lr = learning_rate)
 
 labels_pred = CL.cluster(F["var"],6)
 nmi = EV.calculate_nmi(data["labels_true_bbc_guardian"],labels_pred)
