@@ -6,10 +6,13 @@
 import os
 from typing import Literal
 
+from pymanopt.autodiff.backends import pytorch
+
 os.environ["OMP_NUM_THREADS"] = "1"
 import torch
 from MVHSC_Aux import data_importation, initialization, clustering, evaluation, lower_level, upper_level
 from torch.optim import Adam, SGD
+
 
 
 
@@ -42,8 +45,10 @@ def do_assess(F_LL, F_UL, type:Literal["UL","LL","both"]):
         nmi, _ = EV.assess(F_UL)
         print(f"ul_nmi:{nmi}")
 
-def update_value(F, grad_F, learning_rate = 0.01):
-    F -= learning_rate * grad_F
+def update_value(F, grad_F, learning_rate = 0.01, method:bool=True):
+    F += learning_rate * grad_F
+    if method:
+        F,_ = torch.linalg.qr(F, mode= "reduced")
     return F
 
 def judge_orth(F):
@@ -59,31 +64,45 @@ def judge_orths(F_UL, F_LL):
 do_assess(F["UL"],F["LL"],"both")
 judge_orths(F["UL"], F["LL"])
 
-for _ in range(5):
-    # 优化下层变量
-    LL_val = LL(F["UL"],Theta["LL"], lambda_r)
-    LL_val.backward()
-    grad_LL = LL.F_LL.grad.clone()
-    F["LL"] = update_value(F["LL"], grad_LL, learning_rate)
-    # LLOP.step()
-
-    do_assess(F["UL"],F["LL"],"UL")
-    judge_orths(F["UL"], F["LL"])
+epochs = 5
 
 
-print("-"*50)
+for _ in range(1):
 
-for _ in range(5):
-    # 优化上层变量
-    UL_val = UL(F["LL"], lambda_r)
-    UL_val.backward()
-    grad_UL = UL.F_UL.grad.clone()
-    F["UL"] = update_value(F["UL"], grad_UL, learning_rate)
+    for epoch in range(epochs):
+        # 优化下层变量
+        LL_val = LL(F["UL"],Theta["LL"], lambda_r)
+        LL_val.backward()
+        grad_LL = LL.F_LL.grad.clone()
+        if epoch < epochs-1:
+            F["LL"] = update_value(F["LL"], grad_LL, learning_rate, False)
+        else:
+            F["LL"] = update_value(F["LL"], grad_LL, learning_rate)
 
-    do_assess(F["UL"],F["LL"],"LL")
+        # LLOP.step()
 
-judge_orths(F["UL"], F["LL"])
-print("-"*50)
+        do_assess(F["UL"],F["LL"],"UL")
+        print(torch.linalg.norm(grad_LL).item())
+        # judge_orths(F["UL"], F["LL"])
+
+
+    print("-"*50)
+
+    for epoch in range(epochs):
+        # 优化上层变量
+        UL_val = UL(F["LL"], lambda_r)
+        UL_val.backward()
+        grad_UL = UL.F_UL.grad.clone()
+        if epoch < epochs-1:
+            F["UL"] = update_value(F["UL"], grad_UL, learning_rate, False)
+        else:
+            F["UL"] = update_value(F["UL"], grad_UL, learning_rate)
+
+        print(torch.linalg.norm(grad_UL).item())
+        do_assess(F["UL"],F["LL"],"LL")
+
+    # judge_orths(F["UL"], F["LL"])
+    print("-"*50)
 
 
 

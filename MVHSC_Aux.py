@@ -238,7 +238,8 @@ class initialization():
         H = self.get_H(sim, p)
         m = H.shape[0]
         n = H.shape[1]
-        W = np.diag(np.random.rand(m))
+        W = np.diag(np.ones(m))
+        # W = np.diag(np.random.rand(m))
         D_e = np.zeros(m)
         for i in range(m):
             D_e[i] = sum(H[:, i])
@@ -269,7 +270,7 @@ class lower_level(nn.Module):
     def forward(self,F_UL, Theta, lambda_r):
         term1 = torch.trace(self.F_LL.T @ Theta @ self.F_LL)
         term2 = lambda_r * torch.trace(self.F_LL @ self.F_LL.T @ F_UL @ F_UL.T)
-        return -term1 - term2
+        return term1 + term2
 
 class upper_level(nn.Module):
     def __init__(self, F_UL):
@@ -278,7 +279,7 @@ class upper_level(nn.Module):
 
     def forward(self,F_LL, lambda_r):
         term = lambda_r * torch.trace(F_LL @ F_LL.T @ self.F_UL @ self.F_UL.T)
-        return -term
+        return term
 
 
 
