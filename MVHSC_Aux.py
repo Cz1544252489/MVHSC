@@ -261,24 +261,24 @@ class initialization():
         return Theta, F
 
 class lower_level(nn.Module):
-    def __init__(self, F_LL):
+    def __init__(self, F_ll):
         # 变量是F_LL也是原来的F
         super().__init__()
 
-        self.F_LL = nn.Parameter(F_LL)
+        self.F_ll = nn.Parameter(F_ll)
 
-    def forward(self,F_UL, Theta, lambda_r):
-        term1 = torch.trace(self.F_LL.T @ Theta @ self.F_LL)
-        term2 = lambda_r * torch.trace(self.F_LL @ self.F_LL.T @ F_UL @ F_UL.T)
-        return term1 + term2
+    def forward(self, F_ul, Theta, lambda_r):
+        term1 = torch.trace(self.F_ll.T @ Theta @ self.F_ll)
+        term2 = lambda_r * torch.trace(self.F_ll @ self.F_ll.T @ F_ul @ F_ul.T)
+        return (term1 + term2)
 
 class upper_level(nn.Module):
-    def __init__(self, F_UL):
+    def __init__(self, F_ul):
         super().__init__()
-        self.F_UL = nn.Parameter(F_UL)
+        self.F_ul = nn.Parameter(F_ul)
 
-    def forward(self,F_LL, lambda_r):
-        term = lambda_r * torch.trace(F_LL @ F_LL.T @ self.F_UL @ self.F_UL.T)
+    def forward(self,F_ll, lambda_r):
+        term = lambda_r * torch.trace(F_ll @ F_ll.T @ self.F_ul @ self.F_ul.T)
         return term
 
 

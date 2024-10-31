@@ -36,17 +36,17 @@ UL = upper_level(F["UL"])
 ULOP = SGD(UL.parameters(), lr = learning_rate)
 
 # 测试结果
-def do_assess(F_LL, F_UL, type:Literal["UL","LL","both"]):
-    if type in ["LL", "both"]:
-        nmi, _ = EV.assess(F_LL)
-        print(f"ll_nmi:{nmi}")
-
+def do_assess(F_ul, F_ll, type:Literal["UL","LL","both"]):
     if type in ["UL", "both"]:
-        nmi, _ = EV.assess(F_UL)
+        nmi, _ = EV.assess(F_ul)
         print(f"ul_nmi:{nmi}")
 
+    if type in ["LL", "both"]:
+        nmi, _ = EV.assess(F_ll)
+        print(f"ll_nmi:{nmi}")
+
 def update_value(F, grad_F, learning_rate = 0.01, method:bool=True):
-    F += learning_rate * grad_F
+    F -= learning_rate * grad_F
     if method:
         F,_ = torch.linalg.qr(F, mode= "reduced")
     return F
@@ -64,42 +64,52 @@ def judge_orths(F_UL, F_LL):
 do_assess(F["UL"],F["LL"],"both")
 judge_orths(F["UL"], F["LL"])
 
-epochs = 5
+epochs = 60
 
-
+grad_method = "man"
 for _ in range(1):
 
     for epoch in range(epochs):
         # 优化下层变量
         LL_val = LL(F["UL"],Theta["LL"], lambda_r)
-        LL_val.backward()
-        grad_LL = LL.F_LL.grad.clone()
+        match grad_method:
+            case "man":
+                grad_ll = 2*(torch.eye(F["LL"].shape[0])-F["LL"]@F["LL"].T)@ Theta["LL"]@F["UL"]
+            case "auto":
+                (-LL_val).backward()
+                grad_ll = LL.F_ll.grad.clone()
         if epoch < epochs-1:
-            F["LL"] = update_value(F["LL"], grad_LL, learning_rate, False)
+            F["LL"] = update_value(F["LL"], grad_ll, learning_rate/(epoch+1), False)
+            F[f"LL{epoch}"] = F["LL"]
+            F[f"grad_LL{epoch}"] = grad_ll
+            print("更新F['LL]，未使用正交化")
         else:
-            F["LL"] = update_value(F["LL"], grad_LL, learning_rate)
+            F["LL"] = update_value(F["LL"], grad_ll, learning_rate/(epoch+1))
+            F[f"LL{epoch}"] = F["LL"]
+            F[f"grad_LL{epoch}"] = grad_ll
+            print("更新F['LL]，使用了正交化")
 
-        # LLOP.step()
 
-        do_assess(F["UL"],F["LL"],"UL")
-        print(torch.linalg.norm(grad_LL).item())
-        # judge_orths(F["UL"], F["LL"])
+        do_assess(F["UL"],F["LL"],"LL")
+        print(torch.linalg.norm(grad_ll, ord =2).item())
+        judge_orths(F["UL"], F["LL"])
 
 
     print("-"*50)
 
-    for epoch in range(epochs):
+    # for epoch in range(epochs):
+    #
         # 优化上层变量
-        UL_val = UL(F["LL"], lambda_r)
-        UL_val.backward()
-        grad_UL = UL.F_UL.grad.clone()
-        if epoch < epochs-1:
-            F["UL"] = update_value(F["UL"], grad_UL, learning_rate, False)
-        else:
-            F["UL"] = update_value(F["UL"], grad_UL, learning_rate)
-
-        print(torch.linalg.norm(grad_UL).item())
-        do_assess(F["UL"],F["LL"],"LL")
+        # UL_val = UL(F["LL"], lambda_r)
+        # UL_val.backward()
+        # grad_UL = UL.F_UL.grad.clone()
+        # if epoch < epochs-1:
+        #     F["UL"] = update_value(F["UL"], grad_UL, learning_rate, False)
+        # else:
+        #     F["UL"] = update_value(F["UL"], grad_UL, learning_rate)
+        #
+        # print(torch.linalg.norm(grad_UL).item())
+        # do_assess(F["UL"],F["LL"],"LL")
 
     # judge_orths(F["UL"], F["LL"])
     print("-"*50)
