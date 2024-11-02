@@ -7,6 +7,7 @@ os.environ["OMP_NUM_THREADS"] = "1"
 from typing import Literal
 import pandas as pd
 import os
+import json
 from scipy.sparse.linalg import eigsh
 from scipy.io import mmread
 from scipy.sparse import csr_matrix
@@ -238,8 +239,8 @@ class initialization():
         H = self.get_H(sim, p)
         m = H.shape[0]
         n = H.shape[1]
-        W = np.diag(np.ones(m))
-        # W = np.diag(np.random.rand(m))
+        # W = np.diag(np.ones(m))
+        W = np.diag(np.random.rand(m))
         D_e = np.zeros(m)
         for i in range(m):
             D_e[i] = sum(H[:, i])
@@ -270,7 +271,7 @@ class lower_level(nn.Module):
     def forward(self, F_ul, Theta, lambda_r):
         term1 = torch.trace(self.F_ll.T @ Theta @ self.F_ll)
         term2 = lambda_r * torch.trace(self.F_ll @ self.F_ll.T @ F_ul @ F_ul.T)
-        return (term1 + term2)
+        return -(term1 + term2)
 
 class upper_level(nn.Module):
     def __init__(self, F_ul):
@@ -279,7 +280,7 @@ class upper_level(nn.Module):
 
     def forward(self,F_ll, lambda_r):
         term = lambda_r * torch.trace(F_ll @ F_ll.T @ self.F_ul @ self.F_ul.T)
-        return term
+        return -term
 
 
 class clustering():
@@ -321,7 +322,7 @@ class iteration():
 
     @staticmethod
     def update_value(F, grad_F, learning_rate=0.01, method: bool = True):
-        F -= learning_rate * grad_F
+        F += learning_rate * grad_F
         if method:
             F, _ = torch.linalg.qr(F, mode="reduced")
         return F
@@ -377,23 +378,46 @@ class evaluation():
         print(f"norm_UL:{norm_UL},norm_LL:{norm_LL}")
 
     @staticmethod
-    def record(epoch, result, ll_nmi, norm_grad_ll):
-        result["ll_nmi"].append(ll_nmi)
-        result["norm_grad_ll"].append(norm_grad_ll)
+    def record(epoch, result, val, nmi, norm_grad, type:Literal["UL","LL"]):
+        match type:
+            case "UL":
+                result["ul_val"].append(val)
+                result["ul_nmi"].append(nmi)
+                result["norm_grad_ul"].append(norm_grad)
+            case "LL":
+                result["ll_val"].append(val)
+                result["ll_nmi"].append(nmi)
+                result["norm_grad_ll"].append(norm_grad)
         return result
 
     @staticmethod
-    def plot_result(data):
-        # 绘制折线图
-        plt.figure(figsize=(8, 6))
-        plt.plot(data, marker='o', linestyle='-', color='b')
+    def plot_result(result):
 
-        # 添加标题和标签
-        plt.title("Line Plot of Data List")
-        plt.xlabel("Position")
-        plt.ylabel("Value")
-        plt.grid(True)
+        for key in result.keys():
+            # 绘制折线图
+            plt.figure(figsize=(8, 6))
+            plt.plot(result[f"{key}"], marker='o', linestyle='-', color='b')
+
+            # 添加标题和标签
+            plt.title(key)
+            plt.xlabel("epoch")
+            plt.ylabel("Value")
+            plt.grid(True)
+
         plt.show()
+
+    @staticmethod
+    def use_result(data, method: Literal["dump","load"]):
+        file_name = "result.json"
+        match method:
+            case "dump":
+                with open(file_name, "w") as file:
+                    json.dump(data, file, indent=4)
+            case "load":
+                with open(file_name, "r") as file:
+                    data = json.load(file)
+                return data
+
 
 class test_part():
 
