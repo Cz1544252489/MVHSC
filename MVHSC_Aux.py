@@ -282,8 +282,6 @@ class upper_level(nn.Module):
         return term
 
 
-
-
 class clustering():
 
     @staticmethod
@@ -319,6 +317,14 @@ class clustering():
 
         return labels
 
+class iteration():
+
+    @staticmethod
+    def update_value(F, grad_F, learning_rate=0.01, method: bool = True):
+        F -= learning_rate * grad_F
+        if method:
+            F, _ = torch.linalg.qr(F, mode="reduced")
+        return F
 
 
 class evaluation():
@@ -358,6 +364,36 @@ class evaluation():
     def calculate_ari(self, labels_true, labels_pred):
         return adjusted_rand_score(labels_true, labels_pred)
 
+    @staticmethod
+    def judge_orth(F):
+        FTF = F.T @ F
+        norm2 = torch.linalg.norm(FTF, ord = 2)
+        return norm2
+
+    @staticmethod
+    def judge_orths(F_UL, F_LL):
+        norm_LL = judge_orth(F_LL)
+        norm_UL = judge_orth(F_UL)
+        print(f"norm_UL:{norm_UL},norm_LL:{norm_LL}")
+
+    @staticmethod
+    def record(epoch, result, ll_nmi, norm_grad_ll):
+        result["ll_nmi"].append(ll_nmi)
+        result["norm_grad_ll"].append(norm_grad_ll)
+        return result
+
+    @staticmethod
+    def plot_result(data):
+        # 绘制折线图
+        plt.figure(figsize=(8, 6))
+        plt.plot(data, marker='o', linestyle='-', color='b')
+
+        # 添加标题和标签
+        plt.title("Line Plot of Data List")
+        plt.xlabel("Position")
+        plt.ylabel("Value")
+        plt.grid(True)
+        plt.show()
 
 class test_part():
 
