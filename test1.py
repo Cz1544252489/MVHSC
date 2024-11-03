@@ -16,9 +16,17 @@ EV = evaluation(DI, CL)
 
 result = EV.use_result({}, "load")
 
-output = {"ll_nmi":result["ll_nmi"],"ul_nmi":result["ul_nmi"]}
-      #    "ll_val":result["ll_val"],"ul_val":result["ul_val"]
-EV.plot_result(output)
+def output_type(flag):
+    output = {}
+    if "nmi" in flag :
+        output["ll_nmi"] = result["ll_nmi"]
+        output["ul_nmi"] = result["ul_nmi"]
+    if "val" in flag:
+        output["ll_val"] =result["ll_val"]
+        output["ul_val"] =result["ul_val"]
+    return output
+
+EV.plot_result(output_type(["nmi","val"]))
 
 
 print("aa")

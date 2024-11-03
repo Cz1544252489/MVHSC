@@ -142,34 +142,43 @@ class data_importation:
         return labels_ture
 
     def get_data(self) -> dict:
-        # 按照文件名生成数据
-        data0 = self.data
-        sources = self.sources
-        data = {"view_num":self.view_num, "sources":sources,
-                            "mapping1":self.mapping1, "cluster_num": self.cluster_num}
-        match self.view_num:
-            case 1:
-                for view in sources:
-                    data[f"{view}_labels_true"] = self.get_labels_true(view=view)
-                    data[f"{view}_mtx"] = data0[f"{view}_mtx"].T
-            case 2:
-                for i,j,k in self.mapping1[self.view2:self.view2+2]:
-                # for i, j, k in [[0,1,0],[0,1,1],[0,2,0],[0,2,2],[1,2,1],[1,2,2]]:
-                    data[f"docs_{sources[i]}_{sources[j]}"] = np.intersect1d(data0[f"{sources[i]}_docs"],
-                                                                              data0[f"{sources[j]}_docs"])
+        if os.path.isfile("data.pt"):
+                data = torch.load("data.pt", weights_only=False)
+                print("输入由data.pt文件中导入")
+        else:
 
-                    data[f"labels_true_{sources[i]}_{sources[j]}"] = self.get_labels_from_sample(data[f"docs_{sources[i]}_{sources[j]}"])
-                    temp = [np.where(data0[f"{sources[k]}_docs"] == value)[0].item() for value in
-                            data[f"docs_{sources[i]}_{sources[j]}"]]
-                    data[f"{sources[k]}_mtx_{sources[i]}_{sources[j]}"] = data0[f"{sources[k]}_mtx"].T[temp]
+            # 按照文件名生成数据
+            data0 = self.data
+            sources = self.sources
+            data = {"view_num":self.view_num, "sources":sources,
+                                "mapping1":self.mapping1, "cluster_num": self.cluster_num}
+            match self.view_num:
+                case 1:
+                    for view in sources:
+                        data[f"{view}_labels_true"] = self.get_labels_true(view=view)
+                        data[f"{view}_mtx"] = data0[f"{view}_mtx"].T
+                case 2:
+                    for i,j,k in self.mapping1[self.view2:self.view2+2]:
+                    # for i, j, k in [[0,1,0],[0,1,1],[0,2,0],[0,2,2],[1,2,1],[1,2,2]]:
+                        data[f"docs_{sources[i]}_{sources[j]}"] = np.intersect1d(data0[f"{sources[i]}_docs"],
+                                                                                  data0[f"{sources[j]}_docs"])
 
-            case 3:
-                data[f"docs_3sources"] = np.intersect1d(np.intersect1d(data0[f"{sources[0]}_docs"], data0[f"{sources[1]}_docs"])
-                                                        , data0[f"{sources[2]}_docs"])
-                data[f"labels_true_3sources"] = self.get_labels_from_sample(data[f"docs_3sources"])
-                for i in range(3):
-                    temp = [np.where(data0[f"{sources[i]}_docs"] == value)[0].item() for value in data["docs_3sources"]]
-                    data[f"{sources[i]}_mtx_3sources"] = data0[f"{sources[i]}_mtx"].T[temp]
+                        data[f"labels_true_{sources[i]}_{sources[j]}"] = self.get_labels_from_sample(data[f"docs_{sources[i]}_{sources[j]}"])
+                        temp = [np.where(data0[f"{sources[k]}_docs"] == value)[0].item() for value in
+                                data[f"docs_{sources[i]}_{sources[j]}"]]
+                        data[f"{sources[k]}_mtx_{sources[i]}_{sources[j]}"] = data0[f"{sources[k]}_mtx"].T[temp]
+
+                case 3:
+                    data[f"docs_3sources"] = np.intersect1d(np.intersect1d(data0[f"{sources[0]}_docs"], data0[f"{sources[1]}_docs"])
+                                                            , data0[f"{sources[2]}_docs"])
+                    data[f"labels_true_3sources"] = self.get_labels_from_sample(data[f"docs_3sources"])
+                    for i in range(3):
+                        temp = [np.where(data0[f"{sources[i]}_docs"] == value)[0].item() for value in data["docs_3sources"]]
+                        data[f"{sources[i]}_mtx_3sources"] = data0[f"{sources[i]}_mtx"].T[temp]
+
+
+            torch.save(data, "data.pt")
+            print("保存数据到data.pt文件中")
 
         return data
 
@@ -327,9 +336,13 @@ class iteration():
         self.result = {"ll_nmi": [], "norm_grad_ll": [], "ll_val": [],
                   "ul_nmi": [], "norm_grad_ul": [], "ul_val": [],
                   "best_ll_nmi": 0, "best_ul_nmi": 0}
+        self.orth = True
+        self.epoch_scaling = True
         self.UL = UL
         self.LL = LL
         self.EV = EV
+        self.max_ll_epochs = 50
+        self.max_ul_epochs = 50
 
     @staticmethod
     def update_value(F, grad_F, learning_rate, method: bool = True):
@@ -338,49 +351,51 @@ class iteration():
             F, _ = torch.linalg.qr(F, mode="reduced")
         return F
 
-    def outer_loop(self, F, Theta, epoch):
-        LL_val = self.LL(F["UL"], Theta["LL"], self.lambda_r)
-        match self.grad_method:
-            case "man":
-                Theta_ = Theta["LL"] + self.lambda_r * F["UL"] @ F["UL"].T
-                # Proj_ = torch.eye(F["LL"].shape[0]) - F["LL"] @ F["LL"].T
-                grad_ll = 2 * Theta_ @ F["LL"]
+    def inner_loop(self, F, Theta):
+        for epoch in range(self.max_ll_epochs):
+            LL_val = self.LL(F["UL"], Theta["LL"], self.lambda_r)
+            match self.grad_method:
+                case "man":
+                    Theta_ = Theta["LL"] + self.lambda_r * F["UL"] @ F["UL"].T
+                    # Proj_ = torch.eye(F["LL"].shape[0]) - F["LL"] @ F["LL"].T
+                    grad_ll = 2 * Theta_ @ F["LL"]
 
-        try:
-            grad_ll
-        except NameError:
-            print("grad_ll未定义")
+            try:
+                grad_ll
+            except NameError:
+                print("grad_ll未定义")
 
-        F["LL"] = self.update_value(F["LL"], grad_ll, self.learning_rate/(epoch+1), True)
-        ll_nmi, _ = self.EV.assess(F["LL"])
-        if ll_nmi > self.result["best_ll_nmi"]:
-            self.result["best_ll_nmi"] = ll_nmi
-            self.result["best_F_ll"] = F["LL"].tolist()
-        norm_grad_ll = torch.linalg.norm(grad_ll, ord =2).item()
-        self.EV.record(epoch, self.result, LL_val.item(), ll_nmi, norm_grad_ll,"LL")
+            F["LL"] = self.update_value(F["LL"], grad_ll, self.learning_rate/(epoch+1), self.orth)
+            ll_nmi, _ = self.EV.assess(F["LL"])
+            if ll_nmi > self.result["best_ll_nmi"]:
+                self.result["best_ll_nmi"] = ll_nmi
+                self.result["best_F_ll"] = F["LL"].tolist()
+            norm_grad_ll = torch.linalg.norm(grad_ll, ord =2).item()
+            self.EV.record(epoch, self.result, LL_val.item(), ll_nmi, norm_grad_ll,"LL")
 
         return F
 
-    def inner_loop(self, F, epoch):
-        UL_val = self.UL(F["LL"], self.lambda_r)
-        match self.grad_method:
-            case "man":
-                Theta_ = self.lambda_r * F["LL"] @ F["LL"].T
-                # Proj_ = torch.eye(F["LL"].shape[0]) #  - F["UL"] @ F["UL"].T
-                grad_ul = 2 * Theta_ @ F["UL"]
+    def outer_loop(self, F):
+        for epoch in range(self.max_ul_epochs):
+            UL_val = self.UL(F["LL"], self.lambda_r)
+            match self.grad_method:
+                case "man":
+                    Theta_ = self.lambda_r * F["LL"] @ F["LL"].T
+                    # Proj_ = torch.eye(F["LL"].shape[0]) #  - F["UL"] @ F["UL"].T
+                    grad_ul = 2 * Theta_ @ F["UL"]
 
-        try:
-            grad_ul
-        except NameError:
-            print("grad_ul未定义")
+            try:
+                grad_ul
+            except NameError:
+                print("grad_ul未定义")
 
-        F["UL"] = self.update_value(F["UL"], grad_ul, self.learning_rate/(epoch+1), True)
-        ul_nmi, _ = self.EV.assess(F["UL"])
-        if ul_nmi > self.result["best_ul_nmi"]:
-            self.result["best_ul_nmi"] = ul_nmi
-            self.result["best_F_ul"] = F["UL"].tolist()
-        norm_grad_ul = torch.linalg.norm(grad_ul, ord =2).item()
-        self.EV.record(epoch, self.result, UL_val.item(), ul_nmi, norm_grad_ul, "UL")
+            F["UL"] = self.update_value(F["UL"], grad_ul, self.learning_rate/(epoch+1), self.orth)
+            ul_nmi, _ = self.EV.assess(F["UL"])
+            if ul_nmi > self.result["best_ul_nmi"]:
+                self.result["best_ul_nmi"] = ul_nmi
+                self.result["best_F_ul"] = F["UL"].tolist()
+            norm_grad_ul = torch.linalg.norm(grad_ul, ord =2).item()
+            self.EV.record(epoch, self.result, UL_val.item(), ul_nmi, norm_grad_ul, "UL")
 
         return F
 
