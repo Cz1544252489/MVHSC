@@ -320,13 +320,69 @@ class clustering():
 
 class iteration():
 
+    def __init__(self, UL, LL, EV, learning_rate, lambda_r):
+        self.grad_method = "man"
+        self.learning_rate = learning_rate
+        self.lambda_r = lambda_r
+        self.result = {"ll_nmi": [], "norm_grad_ll": [], "ll_val": [],
+                  "ul_nmi": [], "norm_grad_ul": [], "ul_val": [],
+                  "best_ll_nmi": 0, "best_ul_nmi": 0}
+        self.UL = UL
+        self.LL = LL
+        self.EV = EV
+
     @staticmethod
-    def update_value(F, grad_F, learning_rate=0.01, method: bool = True):
+    def update_value(F, grad_F, learning_rate, method: bool = True):
         F += learning_rate * grad_F
         if method:
             F, _ = torch.linalg.qr(F, mode="reduced")
         return F
 
+    def outer_loop(self, F, Theta, epoch):
+        LL_val = self.LL(F["UL"], Theta["LL"], self.lambda_r)
+        match self.grad_method:
+            case "man":
+                Theta_ = Theta["LL"] + self.lambda_r * F["UL"] @ F["UL"].T
+                # Proj_ = torch.eye(F["LL"].shape[0]) - F["LL"] @ F["LL"].T
+                grad_ll = 2 * Theta_ @ F["LL"]
+
+        try:
+            grad_ll
+        except NameError:
+            print("grad_ll未定义")
+
+        F["LL"] = self.update_value(F["LL"], grad_ll, self.learning_rate/(epoch+1), True)
+        ll_nmi, _ = self.EV.assess(F["LL"])
+        if ll_nmi > self.result["best_ll_nmi"]:
+            self.result["best_ll_nmi"] = ll_nmi
+            self.result["best_F_ll"] = F["LL"].tolist()
+        norm_grad_ll = torch.linalg.norm(grad_ll, ord =2).item()
+        self.EV.record(epoch, self.result, LL_val.item(), ll_nmi, norm_grad_ll,"LL")
+
+        return F
+
+    def inner_loop(self, F, epoch):
+        UL_val = self.UL(F["LL"], self.lambda_r)
+        match self.grad_method:
+            case "man":
+                Theta_ = self.lambda_r * F["LL"] @ F["LL"].T
+                # Proj_ = torch.eye(F["LL"].shape[0]) #  - F["UL"] @ F["UL"].T
+                grad_ul = 2 * Theta_ @ F["UL"]
+
+        try:
+            grad_ul
+        except NameError:
+            print("grad_ul未定义")
+
+        F["UL"] = self.update_value(F["UL"], grad_ul, self.learning_rate/(epoch+1), True)
+        ul_nmi, _ = self.EV.assess(F["UL"])
+        if ul_nmi > self.result["best_ul_nmi"]:
+            self.result["best_ul_nmi"] = ul_nmi
+            self.result["best_F_ul"] = F["UL"].tolist()
+        norm_grad_ul = torch.linalg.norm(grad_ul, ord =2).item()
+        self.EV.record(epoch, self.result, UL_val.item(), ul_nmi, norm_grad_ul, "UL")
+
+        return F
 
 class evaluation():
 
