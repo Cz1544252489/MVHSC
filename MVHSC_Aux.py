@@ -52,7 +52,8 @@ class data_importation:
             [1,2,1],
             [1,2,2]
         ]
-        self.data = self.get_data0()
+        self.data0 = self.get_data0()
+        self.data = self.get_data()
 
     @staticmethod
     def normalize_data(X : csr_matrix):
@@ -86,7 +87,7 @@ class data_importation:
         sources = self.sources
         file_types = self.file_types
 
-        data = {}
+        data0 = {}
         # 使用循环创建变量并加载数据
         for source in sources:
             for ftype in file_types:
@@ -95,9 +96,9 @@ class data_importation:
 
                 # 根据文件类型选择读取方法
                 if ftype == 'mtx':
-                    data[f"{source}_{ftype}"] = self.load_csr_matrix(filepath)
+                    data0[f"{source}_{ftype}"] = self.load_csr_matrix(filepath)
                 else:
-                    data[f"{source}_{ftype}"] = pd.read_csv(filepath, header=None, names=[ftype.capitalize()])
+                    data0[f"{source}_{ftype}"] = pd.read_csv(filepath, header=None, names=[ftype.capitalize()])
 
         # 调用函数并打印结果
         disjoint_clist_filename = "3sources.disjoint.clist"
@@ -105,10 +106,10 @@ class data_importation:
         overlap_clist_filename = "3sources.overlap.clist"
         overlap_clist_path = os.path.join(root_path, overlap_clist_filename)
 
-        data['disjoint_clist'] = self.load_data_to_dataframe(disjoint_clist_path)
-        data['overlap_clist'] = self.load_data_to_dataframe(overlap_clist_path)
+        data0['disjoint_clist'] = self.load_data_to_dataframe(disjoint_clist_path)
+        data0['overlap_clist'] = self.load_data_to_dataframe(overlap_clist_path)
 
-        for key, values in data.items():
+        for key, values in data0.items():
             globals()[key] = values
 
 
@@ -120,10 +121,10 @@ class data_importation:
 
     def get_labels_true(self,view:Literal["bbc","guardian","reuters"]="bbc",
                                    clist_type:Literal["disjoint","overlap"]="disjoint"):
-        data = self.data
+        data0 = self.data0
         mapping = self.mapping
-        docs = data[f"{view}_docs"]
-        clist = data[f"{clist_type}_clist"]
+        docs = data0[f"{view}_docs"]
+        clist = data0[f"{clist_type}_clist"]
         labels_true = np.zeros(len(docs),dtype=int)
         for i in range(len(docs)):
             label = clist[np.argwhere(clist==docs[i])[0][0]][0]
@@ -132,9 +133,9 @@ class data_importation:
         return labels_true
 
     def get_labels_from_sample(self, sample, clist_type:Literal["disjoint","overlap"]="disjoint"):
-        data = self.data
+        data0 = self.data0
         mapping = self.mapping
-        clist = data[f"{clist_type}_clist"]
+        clist = data0[f"{clist_type}_clist"]
         labels_ture = np.zeros(len(sample), dtype=int)
         for i in range(len(sample)):
             label = clist[np.argwhere(clist==sample[i])[0][0]][0]
@@ -142,43 +143,36 @@ class data_importation:
         return labels_ture
 
     def get_data(self) -> dict:
-        if os.path.isfile("data.pt"):
-                data = torch.load("data.pt", weights_only=False)
-                print("输入由data.pt文件中导入")
-        else:
 
-            # 按照文件名生成数据
-            data0 = self.data
-            sources = self.sources
-            data = {"view_num":self.view_num, "sources":sources,
-                                "mapping1":self.mapping1, "cluster_num": self.cluster_num}
-            match self.view_num:
-                case 1:
-                    for view in sources:
-                        data[f"{view}_labels_true"] = self.get_labels_true(view=view)
-                        data[f"{view}_mtx"] = data0[f"{view}_mtx"].T
-                case 2:
-                    for i,j,k in self.mapping1[self.view2:self.view2+2]:
-                    # for i, j, k in [[0,1,0],[0,1,1],[0,2,0],[0,2,2],[1,2,1],[1,2,2]]:
-                        data[f"docs_{sources[i]}_{sources[j]}"] = np.intersect1d(data0[f"{sources[i]}_docs"],
-                                                                                  data0[f"{sources[j]}_docs"])
+        # 按照文件名生成数据
+        data0 = self.data0
+        sources = self.sources
+        data = {"view_num":self.view_num, "sources":sources,
+                            "mapping1":self.mapping1, "cluster_num": self.cluster_num}
+        match self.view_num:
+            case 1:
+                for view in sources:
+                    data[f"{view}_labels_true"] = self.get_labels_true(view=view)
+                    data[f"{view}_mtx"] = data0[f"{view}_mtx"].T
+            case 2:
+                for i,j,k in self.mapping1[self.view2:self.view2+2]:
+                # for i, j, k in [[0,1,0],[0,1,1],[0,2,0],[0,2,2],[1,2,1],[1,2,2]]:
+                    data[f"docs_{sources[i]}_{sources[j]}"] = np.intersect1d(data0[f"{sources[i]}_docs"],
+                                                                              data0[f"{sources[j]}_docs"])
 
-                        data[f"labels_true_{sources[i]}_{sources[j]}"] = self.get_labels_from_sample(data[f"docs_{sources[i]}_{sources[j]}"])
-                        temp = [np.where(data0[f"{sources[k]}_docs"] == value)[0].item() for value in
-                                data[f"docs_{sources[i]}_{sources[j]}"]]
-                        data[f"{sources[k]}_mtx_{sources[i]}_{sources[j]}"] = data0[f"{sources[k]}_mtx"].T[temp]
+                    data[f"labels_true_{sources[i]}_{sources[j]}"] = self.get_labels_from_sample(data[f"docs_{sources[i]}_{sources[j]}"])
+                    temp = [np.where(data0[f"{sources[k]}_docs"] == value)[0].item() for value in
+                            data[f"docs_{sources[i]}_{sources[j]}"]]
+                    data[f"{sources[k]}_mtx_{sources[i]}_{sources[j]}"] = data0[f"{sources[k]}_mtx"].T[temp]
 
-                case 3:
-                    data[f"docs_3sources"] = np.intersect1d(np.intersect1d(data0[f"{sources[0]}_docs"], data0[f"{sources[1]}_docs"])
-                                                            , data0[f"{sources[2]}_docs"])
-                    data[f"labels_true_3sources"] = self.get_labels_from_sample(data[f"docs_3sources"])
-                    for i in range(3):
-                        temp = [np.where(data0[f"{sources[i]}_docs"] == value)[0].item() for value in data["docs_3sources"]]
-                        data[f"{sources[i]}_mtx_3sources"] = data0[f"{sources[i]}_mtx"].T[temp]
+            case 3:
+                data[f"docs_3sources"] = np.intersect1d(np.intersect1d(data0[f"{sources[0]}_docs"], data0[f"{sources[1]}_docs"])
+                                                        , data0[f"{sources[2]}_docs"])
+                data[f"labels_true_3sources"] = self.get_labels_from_sample(data[f"docs_3sources"])
+                for i in range(3):
+                    temp = [np.where(data0[f"{sources[i]}_docs"] == value)[0].item() for value in data["docs_3sources"]]
+                    data[f"{sources[i]}_mtx_3sources"] = data0[f"{sources[i]}_mtx"].T[temp]
 
-
-            torch.save(data, "data.pt")
-            print("保存数据到data.pt文件中")
 
         return data
 
@@ -190,7 +184,7 @@ class initialization():
         self.mapping2 = ["UL","LL"]
         self.mapping1 = DI.mapping1
         self.view2 = DI.view2
-        self.data = DI.get_data()
+        self.data = DI.data
         self.device = DI.device
 
     @staticmethod
@@ -270,27 +264,6 @@ class initialization():
 
         return Theta, F
 
-class lower_level(nn.Module):
-    def __init__(self, F_ll):
-        # 变量是F_LL也是原来的F
-        super().__init__()
-
-        self.F_ll = nn.Parameter(F_ll)
-
-    def forward(self, F_ul, Theta, lambda_r):
-        term1 = torch.trace(self.F_ll.T @ Theta @ self.F_ll)
-        term2 = lambda_r * torch.trace(self.F_ll @ self.F_ll.T @ F_ul @ F_ul.T)
-        return -(term1 + term2)
-
-class upper_level(nn.Module):
-    def __init__(self, F_ul):
-        super().__init__()
-        self.F_ul = nn.Parameter(F_ul)
-
-    def forward(self,F_ll, lambda_r):
-        term = lambda_r * torch.trace(F_ll @ F_ll.T @ self.F_ul @ self.F_ul.T)
-        return -term
-
 
 class clustering():
 
@@ -329,20 +302,41 @@ class clustering():
 
 class iteration():
 
-    def __init__(self, UL, LL, EV, learning_rate, lambda_r):
+    def __init__(self, EV, F, settings):
         self.grad_method = "man"
-        self.learning_rate = learning_rate
-        self.lambda_r = lambda_r
+        self.learning_rate = settings["learning_rate"]
+        self.lambda_r = settings["lambda_r"]
         self.result = {"ll_nmi": [], "norm_grad_ll": [], "ll_val": [],
                   "ul_nmi": [], "norm_grad_ul": [], "ul_val": [],
                   "best_ll_nmi": 0, "best_ul_nmi": 0}
         self.orth = True
         self.epoch_scaling = True
-        self.UL = UL
-        self.LL = LL
         self.EV = EV
-        self.max_ll_epochs = 50
-        self.max_ul_epochs = 50
+        self.max_ll_epochs = settings["max_ll_epochs"]
+        self.max_ul_epochs = settings["max_ul_epochs"]
+        self.UL = self.upper_level(F["UL"])
+        self.LL = self.lower_level(F["LL"])
+
+    class lower_level(nn.Module):
+        def __init__(self, F_ll):
+            # 变量是F_LL也是原来的F
+            super().__init__()
+
+            self.F_ll = nn.Parameter(F_ll)
+
+        def forward(self, F_ul, Theta, lambda_r):
+            term1 = torch.trace(self.F_ll.T @ Theta @ self.F_ll)
+            term2 = lambda_r * torch.trace(self.F_ll @ self.F_ll.T @ F_ul @ F_ul.T)
+            return -(term1 + term2)
+
+    class upper_level(nn.Module):
+        def __init__(self, F_ul):
+            super().__init__()
+            self.F_ul = nn.Parameter(F_ul)
+
+        def forward(self, F_ll, lambda_r):
+            term = lambda_r * torch.trace(F_ll @ F_ll.T @ self.F_ul @ self.F_ul.T)
+            return -term
 
     @staticmethod
     def update_value(F, grad_F, learning_rate, method: bool = True):
@@ -403,7 +397,7 @@ class evaluation():
 
     def __init__(self, DI, CL):
         self.cluster = CL.cluster
-        self.data = DI.get_data()
+        self.data = DI.data
         self.mapping1 = DI.mapping1
         self.view2 = DI.view2
         mapping = {
@@ -496,7 +490,7 @@ class test_part():
         self.file_name = "output.txt"
         self.sources = DI.sources
         self.view_num = DI.view_num
-        self.data = DI.get_data()
+        self.data = DI.data
         self.CL = CL
         self.EV = EV
         self.IN = IN

@@ -2,7 +2,7 @@ import os
 
 os.environ["OMP_NUM_THREADS"] = "1"
 import torch
-from MVHSC_Aux import data_importation, initialization, clustering, evaluation, lower_level, upper_level
+from MVHSC_Aux import data_importation, initialization, clustering, evaluation
 import json
 
 
@@ -26,7 +26,7 @@ def output_type(flag):
         output["ul_val"] =result["ul_val"]
     return output
 
-EV.plot_result(output_type(["nmi","val"]))
+EV.plot_result(output_type(["nmi"]))
 
 
 print("aa")
