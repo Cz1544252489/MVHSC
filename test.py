@@ -24,13 +24,17 @@ settings = {"learning_rate": learning_rate, "lambda_r": lambda_r,
             "max_ll_epochs": 20, "max_ul_epochs": 10}
 IT = iteration(EV, F, settings)
 
-Epochs = 20
+Epochs = 300
 
 for _ in range(Epochs):
-    for _ in range(5):
-        F = IT.inner_loop(F, Theta)
-        # 优化上层变量
+    F = IT.inner_loop(F, Theta)
+
+    # 优化上层变量
     F = IT.outer_loop(F)
+
+    val = torch.trace(F["UL"].T @ (torch.eye(F["UL"].shape[0]) - F["LL"] @ F["LL"].T) @ F["UL"])
+
+    print(val)
 
 EV.use_result(IT.result, "dump")
 
