@@ -2,6 +2,7 @@
 
 import os
 
+
 os.environ["OMP_NUM_THREADS"] = "1"
 
 from typing import Literal
@@ -186,6 +187,7 @@ class initialization():
         self.view2 = DI.view2
         self.data = DI.data
         self.device = DI.device
+        self.Theta, self.F = self.initial(self.data["view_num"])
 
     @staticmethod
     def row_norm(X):
@@ -204,13 +206,13 @@ class initialization():
         #     raise ValueError("输入错误")
         return similarity_matrix
 
-    def initial(self, backend="torch"):
+    def initial(self, view_num, backend="torch"):
         data = self.data
         sources = data["sources"]
         p = data["cluster_num"]
         Theta = {}
         F = {}
-        match data["view_num"]:
+        match view_num:
             case 2:
                 l = 0
                 for i,j,k in self.mapping1[self.view2:self.view2+2]:
@@ -302,7 +304,7 @@ class clustering():
 
 class iteration():
 
-    def __init__(self, EV, F, settings):
+    def __init__(self, EV, IN, settings):
         self.grad_method = "man"
         self.learning_rate = settings["learning_rate"]
         self.lambda_r = settings["lambda_r"]
@@ -312,10 +314,12 @@ class iteration():
         self.orth = settings["orth"]
         self.epoch_scaling = True
         self.EV = EV
+        self.F = IN.F
+        self.Theta = IN.Theta
         self.max_ll_epochs = settings["max_ll_epochs"]
         self.max_ul_epochs = settings["max_ul_epochs"]
-        self.UL = self.upper_level(F["UL"])
-        self.LL = self.lower_level(F["LL"])
+        self.UL = self.upper_level(self.F["UL"])
+        self.LL = self.lower_level(self.F["LL"])
 
     class lower_level(nn.Module):
         def __init__(self, F_ll):
@@ -345,53 +349,49 @@ class iteration():
             F, _ = torch.linalg.qr(F, mode="reduced")
         return F
 
-    def inner_loop(self, F, Theta):
+    def inner_loop(self):
         for epoch in range(self.max_ll_epochs):
-            LL_val = self.LL(F["UL"], Theta["LL"], self.lambda_r)
+            LL_val = self.LL(self.F["UL"], self.Theta["LL"], self.lambda_r)
             match self.grad_method:
                 case "man":
-                    Theta_ = Theta["LL"] + self.lambda_r * F["UL"] @ F["UL"].T
+                    Theta_ = self.Theta["LL"] + self.lambda_r * self.F["UL"] @ self.F["UL"].T
                     # Proj_ = torch.eye(F["LL"].shape[0]) - F["LL"] @ F["LL"].T
-                    grad_ll = 2 * Theta_ @ F["LL"]
+                    grad_ll = 2 * Theta_ @ self.F["LL"]
 
             try:
                 grad_ll
             except NameError:
                 print("grad_ll未定义")
 
-            F["LL"] = self.update_value(F["LL"], grad_ll, self.learning_rate/(epoch+1), self.orth)
-            ll_nmi, _ = self.EV.assess(F["LL"])
+            self.F["LL"] = self.update_value(self.F["LL"], grad_ll, self.learning_rate/(epoch+1), self.orth)
+            ll_nmi, _ = self.EV.assess(self.F["LL"])
             if ll_nmi > self.result["best_ll_nmi"]:
                 self.result["best_ll_nmi"] = ll_nmi
-                self.result["best_F_ll"] = F["LL"].tolist()
+                self.result["best_F_ll"] = self.F["LL"].tolist()
             norm_grad_ll = torch.linalg.norm(grad_ll, ord =2).item()
             self.EV.record(epoch, self.result, LL_val.item(), ll_nmi, norm_grad_ll,"LL")
 
-        return F
-
-    def outer_loop(self, F):
+    def outer_loop(self):
         for epoch in range(self.max_ul_epochs):
-            UL_val = self.UL(F["LL"], self.lambda_r)
+            UL_val = self.UL(self.F["LL"], self.lambda_r)
             match self.grad_method:
                 case "man":
-                    Theta_ = self.lambda_r * F["LL"] @ F["LL"].T
+                    Theta_ = self.lambda_r * self.F["LL"] @ self.F["LL"].T
                     # Proj_ = torch.eye(F["LL"].shape[0]) #  - F["UL"] @ F["UL"].T
-                    grad_ul = 2 * Theta_ @ F["UL"]
+                    grad_ul = 2 * Theta_ @ self.F["UL"]
 
             try:
                 grad_ul
             except NameError:
                 print("grad_ul未定义")
 
-            F["UL"] = self.update_value(F["UL"], grad_ul, self.learning_rate/(epoch+1), self.orth)
-            ul_nmi, _ = self.EV.assess(F["UL"])
+            self.F["UL"] = self.update_value(self.F["UL"], grad_ul, self.learning_rate/(epoch+1), self.orth)
+            ul_nmi, _ = self.EV.assess(self.F["UL"])
             if ul_nmi > self.result["best_ul_nmi"]:
                 self.result["best_ul_nmi"] = ul_nmi
-                self.result["best_F_ul"] = F["UL"].tolist()
+                self.result["best_F_ul"] = self.F["UL"].tolist()
             norm_grad_ul = torch.linalg.norm(grad_ul, ord =2).item()
             self.EV.record(epoch, self.result, UL_val.item(), ul_nmi, norm_grad_ul, "UL")
-
-        return F
 
 class evaluation():
 
@@ -455,9 +455,8 @@ class evaluation():
                 result["norm_grad_ll"].append(norm_grad)
         return result
 
-    @staticmethod
-    def plot_result(result):
-
+    def plot_result(self,data, flag):
+        result = self.output_type(data, flag)
         for key in result.keys():
             # 绘制折线图
             plt.figure(figsize=(8, 6))
@@ -483,6 +482,29 @@ class evaluation():
                     data = json.load(file)
                 return data
 
+
+    @staticmethod
+    def output_type(result, flag):
+        output = {}
+        if "nmi" in flag :
+            output["ll_nmi"] = result["ll_nmi"]
+            output["ul_nmi"] = result["ul_nmi"]
+        if "val" in flag:
+            output["ll_val"] =result["ll_val"]
+            output["ul_val"] =result["ul_val"]
+        if "grad" in flag:
+            output["norm_grad_ll"] =  result["norm_grad_ll"]
+            output["norm_grad_ul"] = result["norm_grad_ul"]
+
+        return output
+
+def create_instances(settings, view2=0):
+    DI = data_importation(view2 = view2)
+    IN = initialization(DI)
+    CL = clustering()
+    EV = evaluation(DI, CL)
+    IT = iteration(EV, IN, settings)
+    return DI, IN, CL, EV, IT
 
 class test_part():
 
