@@ -21,7 +21,7 @@ from sklearn.cluster import KMeans, SpectralClustering
 from sklearn.metrics import normalized_mutual_info_score, adjusted_rand_score
 from sklearn.preprocessing import normalize
 
-
+np.random.seed(42)
 # function part
 
 # data importation
@@ -309,7 +309,7 @@ class iteration():
         self.result = {"ll_nmi": [], "norm_grad_ll": [], "ll_val": [],
                   "ul_nmi": [], "norm_grad_ul": [], "ul_val": [],
                   "best_ll_nmi": 0, "best_ul_nmi": 0}
-        self.orth = True
+        self.orth = settings["orth"]
         self.epoch_scaling = True
         self.EV = EV
         self.max_ll_epochs = settings["max_ll_epochs"]

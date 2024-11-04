@@ -21,10 +21,11 @@ lambda_r = 1
 data = DI.data
 Theta, F = IN.initial()
 settings = {"learning_rate": learning_rate, "lambda_r": lambda_r,
-            "max_ll_epochs": 20, "max_ul_epochs": 10}
+            "max_ll_epochs": 30, "max_ul_epochs": 20, "orth": True}
 IT = iteration(EV, F, settings)
 
-Epochs = 300
+Epochs = 100
+epsilon = 0.5
 
 for _ in range(Epochs):
     F = IT.inner_loop(F, Theta)
@@ -33,8 +34,9 @@ for _ in range(Epochs):
     F = IT.outer_loop(F)
 
     val = torch.trace(F["UL"].T @ (torch.eye(F["UL"].shape[0]) - F["LL"] @ F["LL"].T) @ F["UL"])
-
-    print(val)
+    if val <= epsilon:
+        IT.lambda_r = IT.lambda_r /2
+    print(f"val:{val.item()}")
 
 EV.use_result(IT.result, "dump")
 
