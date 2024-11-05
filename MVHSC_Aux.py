@@ -316,6 +316,7 @@ class iteration():
         self.update_lambda_or_not = settings["update_lambda"]
         self.epsilon = settings["epsilon"]
         self.update_learning_rate= True
+        self.use_proj = settings["use_proj"]
         self.EV = EV
         self.F = IN.F
         self.Theta = IN.Theta
@@ -358,7 +359,10 @@ class iteration():
             match self.grad_method:
                 case "man":
                     Theta_ = self.Theta["LL"] + self.lambda_r * self.F["UL"] @ self.F["UL"].T
-                    # Proj_ = torch.eye(F["LL"].shape[0]) - F["LL"] @ F["LL"].T
+                    if self.use_proj:
+                        Proj_ = torch.eye(self.F["LL"].shape[0]) - self.F["LL"] @ self.F["LL"].T
+                        grad_ll = 2 * Proj_ @ Theta_ @ self.F["LL"]
+
                     grad_ll = 2 * Theta_ @ self.F["LL"]
 
             try:
@@ -382,7 +386,10 @@ class iteration():
             match self.grad_method:
                 case "man":
                     Theta_ = self.lambda_r * self.F["LL"] @ self.F["LL"].T
-                    # Proj_ = torch.eye(F["LL"].shape[0]) #  - F["UL"] @ F["UL"].T
+                    if self.use_proj:
+                        Proj_ = torch.eye(self.F["LL"].shape[0])  - self.F["UL"] @ self.F["UL"].T
+                        grad_ul = 2 * Proj_ @ Theta_ @ self.F["UL"]
+
                     grad_ul = 2 * Theta_ @ self.F["UL"]
 
             try:
