@@ -311,8 +311,11 @@ class iteration():
         self.result = {"ll_nmi": [], "norm_grad_ll": [], "ll_val": [],
                   "ul_nmi": [], "norm_grad_ul": [], "ul_val": [],
                   "best_ll_nmi": 0, "best_ul_nmi": 0}
-        self.orth = settings["orth"]
-        self.epoch_scaling = True
+        self.orth1 = settings["orth1"]
+        self.orth2 = settings["orth2"]
+        self.update_lambda_or_not = settings["update_lambda"]
+        self.epsilon = settings["epsilon"]
+        self.update_learning_rate= True
         self.EV = EV
         self.F = IN.F
         self.Theta = IN.Theta
@@ -363,13 +366,15 @@ class iteration():
             except NameError:
                 print("grad_ll未定义")
 
-            self.F["LL"] = self.update_value(self.F["LL"], grad_ll, self.learning_rate/(epoch+1), self.orth)
+            self.F["LL"] = self.update_value(self.F["LL"], grad_ll, self.learning_rate, self.orth1)
             ll_nmi, _ = self.EV.assess(self.F["LL"])
             if ll_nmi > self.result["best_ll_nmi"]:
                 self.result["best_ll_nmi"] = ll_nmi
                 self.result["best_F_ll"] = self.F["LL"].tolist()
             norm_grad_ll = torch.linalg.norm(grad_ll, ord =2).item()
-            self.EV.record(epoch, self.result, LL_val.item(), ll_nmi, norm_grad_ll,"LL")
+
+        self.F["LL"] = self.update_value(self.F["LL"], grad_ll,0, self.orth2)
+        self.EV.record(self.result, LL_val.item(), ll_nmi, norm_grad_ll,"LL")
 
     def outer_loop(self):
         for epoch in range(self.max_ul_epochs):
@@ -385,13 +390,22 @@ class iteration():
             except NameError:
                 print("grad_ul未定义")
 
-            self.F["UL"] = self.update_value(self.F["UL"], grad_ul, self.learning_rate/(epoch+1), self.orth)
+            self.F["UL"] = self.update_value(self.F["UL"], grad_ul, self.learning_rate, self.orth1)
             ul_nmi, _ = self.EV.assess(self.F["UL"])
             if ul_nmi > self.result["best_ul_nmi"]:
                 self.result["best_ul_nmi"] = ul_nmi
                 self.result["best_F_ul"] = self.F["UL"].tolist()
             norm_grad_ul = torch.linalg.norm(grad_ul, ord =2).item()
-            self.EV.record(epoch, self.result, UL_val.item(), ul_nmi, norm_grad_ul, "UL")
+
+        self.F["UL"] = self.update_value(self.F["UL"], grad_ul, 0, self.orth2)
+        self.EV.record(self.result, UL_val.item(), ul_nmi, norm_grad_ul, "UL")
+
+    def update_lambda(self):
+        if self.update_lambda_or_not:
+            val = torch.trace(self.F["UL"].T @ (torch.eye(self.F["UL"].shape[0]) - self.F["LL"] @ self.F["LL"].T) @ self.F["UL"])
+            if val <= self.epsilon:
+                self.lambda_r = self.lambda_r /2
+            return val
 
 class evaluation():
 
@@ -443,7 +457,7 @@ class evaluation():
         print(f"norm_UL:{norm_UL},norm_LL:{norm_LL}")
 
     @staticmethod
-    def record(epoch, result, val, nmi, norm_grad, type:Literal["UL","LL"]):
+    def record(result, val, nmi, norm_grad, type:Literal["UL","LL"]):
         match type:
             case "UL":
                 result["ul_val"].append(val)
@@ -457,17 +471,26 @@ class evaluation():
 
     def plot_result(self,data, flag):
         result = self.output_type(data, flag)
-        for key in result.keys():
-            # 绘制折线图
-            plt.figure(figsize=(8, 6))
-            plt.plot(result[f"{key}"], marker='o', linestyle='-', color='b')
+        num_plots = len(result.keys())  # 获取总图数
+        cols = 2  # 每行2张图
+        rows = (num_plots + cols - 1) // cols  # 根据总图数计算行数
 
-            # 添加标题和标签
-            plt.title(key)
-            plt.xlabel("epoch")
-            plt.ylabel("Value")
-            plt.grid(True)
+        fig, axes = plt.subplots(rows, cols, figsize=(12, rows * 4))  # 设置子图
+        axes = axes.flatten()  # 将 axes 转换为一维数组，便于索引
 
+        for i, key in enumerate(result.keys()):
+            ax = axes[i]
+            ax.plot(result[f"{key}"], marker='o', linestyle='-')
+            ax.set_title(key)
+            ax.set_xlabel("epoch")
+            ax.set_ylabel("Value")
+            ax.grid(True)
+
+        # 隐藏多余的子图（如果子图多余图数）
+        for j in range(i + 1, len(axes)):
+            fig.delaxes(axes[j])
+
+        plt.tight_layout()
         plt.show()
 
     @staticmethod
