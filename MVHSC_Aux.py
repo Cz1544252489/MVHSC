@@ -180,7 +180,7 @@ class data_importation:
 
 
 
-class initialization():
+class initialization:
 
     def __init__(self, DI):
         self.mapping2 = ["UL","LL"]
@@ -188,7 +188,7 @@ class initialization():
         self.view2 = DI.view2
         self.data = DI.data
         self.device = DI.device
-        self.Theta, self.F = self.initial(self.data["view_num"])
+        self.Theta, self.x, self.y = self.initial(self.data["view_num"])
 
     @staticmethod
     def row_norm(X):
@@ -224,7 +224,9 @@ class initialization():
             Theta = {key: torch.from_numpy(value) for key, value in Theta.items()}
             F = {key: torch.from_numpy(value) for key, value in F.items()}
 
-        return Theta, F
+        x = F["UL"]
+        y = F["LL"]
+        return Theta, x, y
 
     @staticmethod
     def get_H(X, p):
@@ -268,7 +270,7 @@ class initialization():
         return Theta, F
 
 
-class clustering():
+class clustering:
 
     @staticmethod
     def show_result(X, labels):
@@ -303,7 +305,7 @@ class clustering():
 
         return labels
 
-class iteration():
+class iteration:
 
     def __init__(self, EV, IN, settings):
         self.grad_method = "man"
@@ -313,99 +315,117 @@ class iteration():
                   "best_ll_nmi": 0, "best_ul_nmi": 0}
         self.update_learning_rate= True
         self.EV = EV
-        self.F = IN.F
-        self.Theta = IN.Theta
-        self.UL = self.upper_level(self.F["UL"])
-        self.LL = self.lower_level(self.F["LL"])
+        self.x = IN.x
+        self.y = IN.y
+        self.Theta = IN.Theta["LL"]
+        self.UL = self.upper_level(self.x, self.settings["lambda_r"])
+        self.LL = self.lower_level(self.y, self.settings["lambda_r"], self.Theta)
 
     class lower_level(nn.Module):
-        def __init__(self, F_ll):
+        def __init__(self, y, lambda_r, Theta):
             # 变量是F_LL也是原来的F
             super().__init__()
+            self.y = nn.Parameter(y)
+            self.lambda_r = lambda_r
+            self.Theta = Theta
 
-            self.F_ll = nn.Parameter(F_ll)
-
-        def forward(self, F_ul, Theta, lambda_r):
-            term1 = torch.trace(self.F_ll.T @ Theta @ self.F_ll)
-            term2 = lambda_r * torch.trace(self.F_ll @ self.F_ll.T @ F_ul @ F_ul.T)
-            return -(term1 + term2)
+        def forward(self, x):
+            term1 = torch.trace(self.y.T @ self.Theta @ self.y)
+            term2 = self.lambda_r * torch.trace(self.y @ self.y.T @ x @ x.T)
+            # regularization = 1 * torch.norm(self.y, p=2)
+            # print((term1+term2)/regularization)
+            return -(term1 + term2 )# - regularization)
 
     class upper_level(nn.Module):
-        def __init__(self, F_ul):
+        def __init__(self, x, lambda_r):
             super().__init__()
-            self.F_ul = nn.Parameter(F_ul)
+            self.x = nn.Parameter(x)
+            self.lambda_r = lambda_r
 
-        def forward(self, F_ll, lambda_r):
-            term = lambda_r * torch.trace(F_ll @ F_ll.T @ self.F_ul @ self.F_ul.T)
-            return -term
+        def forward(self, y):
+            term1 = self.lambda_r * torch.trace(y @ y.T @ self.x @ self.x.T)
+            # term2 = 0.1 * torch.linalg.norm(self.x)
+            return - (term1 )
 
-    @staticmethod
-    def update_value(F, grad_F, learning_rate, method: bool = True):
-        F += learning_rate * grad_F
+    def update_value(self, x, grad, method: bool = False):
+        x += self.settings["learning_rate"] * grad
         if method:
-            F, _ = torch.linalg.qr(F, mode="reduced")
-        return F
+            x, _ = torch.linalg.qr(x, mode="reduced")
+        return x
 
     def inner_loop(self):
         for epoch in range(self.settings["max_ll_epochs"]):
-            LL_val = self.LL(self.F["UL"], self.Theta["LL"], self.settings["lambda_r"])
+            LL_val = self.LL(self.x, self.Theta["LL"], self.settings["lambda_r"])
+            UL_val = self.UL(self.y, self.settings["lambda_r"])
             match self.grad_method:
                 case "man":
-                    Theta_ = self.Theta["LL"] + self.settings["lambda_r"]* self.F["UL"] @ self.F["UL"].T
+                    Theta_ll = self.Theta["LL"] + self.settings["lambda_r"]* self.x @ self.x.T
                     if self.settings["use_proj"]:
-                        Proj_ = torch.eye(self.F["LL"].shape[0]) - self.F["LL"] @ self.F["LL"].T
-                        grad_ll = 2 * Proj_ @ Theta_ @ self.F["LL"]
+                        Proj_ll = torch.eye(self.y.shape[0]) - self.y @ self.y.T
+                        grad_ll = 2 * Proj_ll @ Theta_ll @ self.y
                     else:
-                        grad_ll = 2 * Theta_ @ self.F["LL"]
+                        grad_ll = 2 * Theta_ll @ self.y
+
+                    Theta_ul = self.settings["lambda_r"]* self.y @ self.y.T
+                    if self.settings["use_proj"]:
+                        Proj_ul = torch.eye(self.y.shape[0])  - self.x @ self.x.T
+                        grad_ul = 2 * Proj_ul @ Theta_ul @ self.x
+                    else:
+                        grad_ul = 2 * Theta_ul @ self.x
 
             try:
                 grad_ll
             except NameError:
                 print("grad_ll未定义")
+            try:
+                grad_ul
+            except NameError:
+                print("grad_ul未定义")
+
             if self.settings["update_learning_rate"]:
-                self.F["LL"] = self.update_value(self.F["LL"], grad_ll, self.settings["learning_rate"], self.settings["orth1"])
+                self.y = self.update_value(self.y, grad_ll, self.settings["learning_rate"], self.settings["orth1"])
             else:
-                self.F["LL"] = self.update_value(self.F["LL"], grad_ll, self.settings["learning_rate"],
+                self.y = self.update_value(self.y, grad_ll, self.settings["learning_rate"],
                                                  self.settings["orth1"])
-            ll_nmi, _ = self.EV.assess(self.F["LL"])
+            ll_nmi, _ = self.EV.assess(self.y)
             if ll_nmi > self.result["best_ll_nmi"]:
                 self.result["best_ll_nmi"] = ll_nmi
-                self.result["best_F_ll"] = self.F["LL"].tolist()
+                self.result["best_F_ll"] = self.y.tolist()
             norm_grad_ll = torch.linalg.norm(grad_ll, ord =2).item()
 
-        self.F["LL"] = self.update_value(self.F["LL"], grad_ll,0, self.settings["orth2"])
+        self.y = self.update_value(self.y, grad_ll,0, self.settings["orth2"])
         self.EV.record(self.result, LL_val.item(), ll_nmi, norm_grad_ll,"LL")
 
     def outer_loop(self):
         for epoch in range(self.settings["max_ul_epochs"]):
-            UL_val = self.UL(self.F["LL"], self.settings["lambda_r"])
+            UL_val = self.UL(self.y, self.settings["lambda_r"])
             match self.grad_method:
                 case "man":
-                    Theta_ = self.settings["lambda_r"]* self.F["LL"] @ self.F["LL"].T
+                    Theta_ = self.settings["lambda_r"]* self.y @ self.y.T
                     if self.settings["use_proj"]:
-                        Proj_ = torch.eye(self.F["LL"].shape[0])  - self.F["UL"] @ self.F["UL"].T
-                        grad_ul = 2 * Proj_ @ Theta_ @ self.F["UL"]
+                        Proj_ = torch.eye(self.y.shape[0])  - self.x @ self.x.T
+                        grad_ul = 2 * Proj_ @ Theta_ @ self.x
                     else:
-                        grad_ul = 2 * Theta_ @ self.F["UL"]
+                        grad_ul = 2 * Theta_ @ self.x
 
             try:
                 grad_ul
             except NameError:
                 print("grad_ul未定义")
 
-            self.F["UL"] = self.update_value(self.F["UL"], grad_ul, self.settings["learning_rate"], self.settings["orth1"])
-            ul_nmi, _ = self.EV.assess(self.F["UL"])
+            self.x = self.update_value(self.x, grad_ul, self.settings["learning_rate"], self.settings["orth1"])
+            ul_nmi, _ = self.EV.assess(self.x)
             if ul_nmi > self.result["best_ul_nmi"]:
                 self.result["best_ul_nmi"] = ul_nmi
-                self.result["best_F_ul"] = self.F["UL"].tolist()
+                self.result["best_F_ul"] = self.x.tolist()
             norm_grad_ul = torch.linalg.norm(grad_ul, ord =2).item()
 
-        self.F["UL"] = self.update_value(self.F["UL"], grad_ul, 0, self.settings["orth2"])
+        self.x = self.update_value(self.x, grad_ul, 0, self.settings["orth2"])
         self.EV.record(self.result, UL_val.item(), ul_nmi, norm_grad_ul, "UL")
 
     def update_lambda_r(self):
         if self.settings["update_lambda_r"]:
-            val = torch.trace(self.F["UL"].T @ (torch.eye(self.F["UL"].shape[0]) - self.F["LL"] @ self.F["LL"].T) @ self.F["UL"])
+            val = torch.trace(self.x.T @ (torch.eye(self.x.shape[0]) - self.y @ self.y.T) @ self.x)
             print(val.item())
             if val <= self.settings["epsilon"]:
                 self.settings["lambda_r"]= self.settings["lambda_r"]/2
@@ -413,7 +433,7 @@ class iteration():
             else:
                 return False
 
-class evaluation():
+class evaluation:
 
     def __init__(self, DI, CL):
         self.cluster = CL.cluster
@@ -543,7 +563,7 @@ def create_instances(settings:dict, view2=0):
     IT = iteration(EV, IN, settings)
     return DI, IN, CL, EV, IT
 
-class test_part():
+class test_part:
 
     def __init__(self, DI, CL, EV, IN):
         self.file_name = "output.txt"
