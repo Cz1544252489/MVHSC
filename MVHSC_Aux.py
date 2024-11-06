@@ -355,8 +355,8 @@ class iteration():
                     if self.settings["use_proj"]:
                         Proj_ = torch.eye(self.F["LL"].shape[0]) - self.F["LL"] @ self.F["LL"].T
                         grad_ll = 2 * Proj_ @ Theta_ @ self.F["LL"]
-
-                    grad_ll = 2 * Theta_ @ self.F["LL"]
+                    else:
+                        grad_ll = 2 * Theta_ @ self.F["LL"]
 
             try:
                 grad_ll
@@ -385,8 +385,8 @@ class iteration():
                     if self.settings["use_proj"]:
                         Proj_ = torch.eye(self.F["LL"].shape[0])  - self.F["UL"] @ self.F["UL"].T
                         grad_ul = 2 * Proj_ @ Theta_ @ self.F["UL"]
-
-                    grad_ul = 2 * Theta_ @ self.F["UL"]
+                    else:
+                        grad_ul = 2 * Theta_ @ self.F["UL"]
 
             try:
                 grad_ul
@@ -487,8 +487,9 @@ class evaluation():
         for i, key in enumerate(result.keys()):
             ax = axes[i]
             ax.plot(result[f"{key}"], marker='o', linestyle='-')
-            for x in list:
-                ax.axvline(x=x, color="r", linestyle='--', linewidth=1)
+            if len(list)>0:
+                for x in list:
+                    ax.axvline(x=x, color="r", linestyle='--', linewidth=1)
             ax.set_title(key)
             ax.set_xlabel("epoch")
             ax.set_ylabel("Value")
@@ -532,7 +533,7 @@ class evaluation():
 def create_instances(settings:dict, view2=0):
     settings0 = {"learning_rate": 0.01, "lambda_r": 1, "epsilon": 0.05, "update_learning_rate": True,
                 "max_ll_epochs": 30, "max_ul_epochs": 20, "orth1": False,
-                "orth2": True, "update_lambda_r": True, "use_proj": False,
+                "orth2": True, "update_lambda_r": False, "use_proj": True,
                  "plot_vline":True}
     settings = settings0 | settings
     DI = data_importation(view2 = view2)
