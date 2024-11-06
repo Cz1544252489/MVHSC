@@ -2,6 +2,7 @@
 
 import os
 
+from matplotlib.lines import lineStyles
 
 os.environ["OMP_NUM_THREADS"] = "1"
 
@@ -306,22 +307,14 @@ class iteration():
 
     def __init__(self, EV, IN, settings):
         self.grad_method = "man"
-        self.learning_rate = settings["learning_rate"]
-        self.lambda_r = settings["lambda_r"]
+        self.settings = settings
         self.result = {"ll_nmi": [], "norm_grad_ll": [], "ll_val": [],
                   "ul_nmi": [], "norm_grad_ul": [], "ul_val": [],
                   "best_ll_nmi": 0, "best_ul_nmi": 0}
-        self.orth1 = settings["orth1"]
-        self.orth2 = settings["orth2"]
-        self.update_lambda_or_not = settings["update_lambda"]
-        self.epsilon = settings["epsilon"]
         self.update_learning_rate= True
-        self.use_proj = settings["use_proj"]
         self.EV = EV
         self.F = IN.F
         self.Theta = IN.Theta
-        self.max_ll_epochs = settings["max_ll_epochs"]
-        self.max_ul_epochs = settings["max_ul_epochs"]
         self.UL = self.upper_level(self.F["UL"])
         self.LL = self.lower_level(self.F["LL"])
 
@@ -354,12 +347,12 @@ class iteration():
         return F
 
     def inner_loop(self):
-        for epoch in range(self.max_ll_epochs):
-            LL_val = self.LL(self.F["UL"], self.Theta["LL"], self.lambda_r)
+        for epoch in range(self.settings["max_ll_epochs"]):
+            LL_val = self.LL(self.F["UL"], self.Theta["LL"], self.settings["lambda_r"])
             match self.grad_method:
                 case "man":
-                    Theta_ = self.Theta["LL"] + self.lambda_r * self.F["UL"] @ self.F["UL"].T
-                    if self.use_proj:
+                    Theta_ = self.Theta["LL"] + self.settings["lambda_r"]* self.F["UL"] @ self.F["UL"].T
+                    if self.settings["use_proj"]:
                         Proj_ = torch.eye(self.F["LL"].shape[0]) - self.F["LL"] @ self.F["LL"].T
                         grad_ll = 2 * Proj_ @ Theta_ @ self.F["LL"]
 
@@ -369,24 +362,27 @@ class iteration():
                 grad_ll
             except NameError:
                 print("grad_ll未定义")
-
-            self.F["LL"] = self.update_value(self.F["LL"], grad_ll, self.learning_rate, self.orth1)
+            if self.settings["update_learning_rate"]:
+                self.F["LL"] = self.update_value(self.F["LL"], grad_ll, self.settings["learning_rate"], self.settings["orth1"])
+            else:
+                self.F["LL"] = self.update_value(self.F["LL"], grad_ll, self.settings["learning_rate"],
+                                                 self.settings["orth1"])
             ll_nmi, _ = self.EV.assess(self.F["LL"])
             if ll_nmi > self.result["best_ll_nmi"]:
                 self.result["best_ll_nmi"] = ll_nmi
                 self.result["best_F_ll"] = self.F["LL"].tolist()
             norm_grad_ll = torch.linalg.norm(grad_ll, ord =2).item()
 
-        self.F["LL"] = self.update_value(self.F["LL"], grad_ll,0, self.orth2)
+        self.F["LL"] = self.update_value(self.F["LL"], grad_ll,0, self.settings["orth2"])
         self.EV.record(self.result, LL_val.item(), ll_nmi, norm_grad_ll,"LL")
 
     def outer_loop(self):
-        for epoch in range(self.max_ul_epochs):
-            UL_val = self.UL(self.F["LL"], self.lambda_r)
+        for epoch in range(self.settings["max_ul_epochs"]):
+            UL_val = self.UL(self.F["LL"], self.settings["lambda_r"])
             match self.grad_method:
                 case "man":
-                    Theta_ = self.lambda_r * self.F["LL"] @ self.F["LL"].T
-                    if self.use_proj:
+                    Theta_ = self.settings["lambda_r"]* self.F["LL"] @ self.F["LL"].T
+                    if self.settings["use_proj"]:
                         Proj_ = torch.eye(self.F["LL"].shape[0])  - self.F["UL"] @ self.F["UL"].T
                         grad_ul = 2 * Proj_ @ Theta_ @ self.F["UL"]
 
@@ -397,22 +393,25 @@ class iteration():
             except NameError:
                 print("grad_ul未定义")
 
-            self.F["UL"] = self.update_value(self.F["UL"], grad_ul, self.learning_rate, self.orth1)
+            self.F["UL"] = self.update_value(self.F["UL"], grad_ul, self.settings["learning_rate"], self.settings["orth1"])
             ul_nmi, _ = self.EV.assess(self.F["UL"])
             if ul_nmi > self.result["best_ul_nmi"]:
                 self.result["best_ul_nmi"] = ul_nmi
                 self.result["best_F_ul"] = self.F["UL"].tolist()
             norm_grad_ul = torch.linalg.norm(grad_ul, ord =2).item()
 
-        self.F["UL"] = self.update_value(self.F["UL"], grad_ul, 0, self.orth2)
+        self.F["UL"] = self.update_value(self.F["UL"], grad_ul, 0, self.settings["orth2"])
         self.EV.record(self.result, UL_val.item(), ul_nmi, norm_grad_ul, "UL")
 
-    def update_lambda(self):
-        if self.update_lambda_or_not:
+    def update_lambda_r(self):
+        if self.settings["update_lambda_r"]:
             val = torch.trace(self.F["UL"].T @ (torch.eye(self.F["UL"].shape[0]) - self.F["LL"] @ self.F["LL"].T) @ self.F["UL"])
-            if val <= self.epsilon:
-                self.lambda_r = self.lambda_r /2
-            return val
+            print(val.item())
+            if val <= self.settings["epsilon"]:
+                self.settings["lambda_r"]= self.settings["lambda_r"]/2
+                return True
+            else:
+                return False
 
 class evaluation():
 
@@ -476,7 +475,7 @@ class evaluation():
                 result["norm_grad_ll"].append(norm_grad)
         return result
 
-    def plot_result(self,data, flag):
+    def plot_result(self,data, list, flag):
         result = self.output_type(data, flag)
         num_plots = len(result.keys())  # 获取总图数
         cols = 2  # 每行2张图
@@ -488,6 +487,8 @@ class evaluation():
         for i, key in enumerate(result.keys()):
             ax = axes[i]
             ax.plot(result[f"{key}"], marker='o', linestyle='-')
+            for x in list:
+                ax.axvline(x=x, color="r", linestyle='--', linewidth=1)
             ax.set_title(key)
             ax.set_xlabel("epoch")
             ax.set_ylabel("Value")
@@ -528,7 +529,12 @@ class evaluation():
 
         return output
 
-def create_instances(settings, view2=0):
+def create_instances(settings:dict, view2=0):
+    settings0 = {"learning_rate": 0.01, "lambda_r": 1, "epsilon": 0.05, "update_learning_rate": True,
+                "max_ll_epochs": 30, "max_ul_epochs": 20, "orth1": False,
+                "orth2": True, "update_lambda_r": True, "use_proj": False,
+                 "plot_vline":True}
+    settings = settings0 | settings
     DI = data_importation(view2 = view2)
     IN = initialization(DI)
     CL = clustering()

@@ -9,24 +9,24 @@ from MVHSC_Aux import create_instances
 import matplotlib.pyplot as plt
 
 
-settings = {"learning_rate": 0.01, "lambda_r": 1,"epsilon": 0.05,
-            "max_ll_epochs": 30, "max_ul_epochs": 20, "orth1": True,
-            "orth2": True, "update_lambda": False, "use_proj": True}
+settings = {}
 DI, IN, CL, EV, IT = create_instances(settings,0)
 
 Epochs = 200
-
-for _ in range(Epochs):
+IT.result["list"] = []
+for i in range(Epochs):
     # 优化下层函数
     IT.inner_loop()
     # 优化上层变量
     IT.outer_loop()
-    IT.update_lambda()
+    flag = IT.update_lambda_r()
+    if flag:
+        IT.result["list"].append(i)
 
-EV.use_result(IT.result|settings, "dump")
+EV.use_result(IT.result, "dump")
 
 data = EV.use_result({}, "load")
-EV.plot_result(data, ["nmi"])
+EV.plot_result(data, IT.result["list"], ["nmi","grad","val"])
 print(f"best_ul_nmi:{IT.result["best_ul_nmi"]}, best_ll_nmi:{IT.result["best_ll_nmi"]}")
 
 print("aaa")
