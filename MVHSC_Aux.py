@@ -6,6 +6,7 @@ from matplotlib.lines import lineStyles
 
 os.environ["OMP_NUM_THREADS"] = "1"
 
+from scipy.optimize import linear_sum_assignment
 from typing import Literal
 import pandas as pd
 import os
@@ -310,8 +311,8 @@ class iteration:
     def __init__(self, EV, IN, settings):
         self.grad_method = "man"
         self.settings = settings
-        self.result = {"ll_nmi": [], "norm_grad_ll": [], "ll_val": [],
-                  "ul_nmi": [], "norm_grad_ul": [], "ul_val": [],
+        self.result = {"ll_nmi": [], "norm_grad_ll": [], "ll_val": [], "ll_acc": [], "ll_ari":[],
+                  "ul_nmi": [], "norm_grad_ul": [], "ul_val": [], "ul_acc": [], "ul_ari": [],
                   "best_ll_nmi": 0, "best_ul_nmi": 0}
         self.update_learning_rate= True
         self.EV = EV
@@ -387,14 +388,14 @@ class iteration:
             else:
                 self.y = self.update_value(self.y, grad_ll, self.settings["learning_rate"],
                                                  self.settings["orth1"])
-            ll_nmi, _ = self.EV.assess(self.y)
+            ll_acc, ll_nmi, ll_ari = self.EV.assess(self.y)
             if ll_nmi > self.result["best_ll_nmi"]:
                 self.result["best_ll_nmi"] = ll_nmi
                 self.result["best_F_ll"] = self.y.tolist()
             norm_grad_ll = torch.linalg.norm(grad_ll, ord =2).item()
 
         self.y = self.update_value(self.y, grad_ll,0, self.settings["orth2"])
-        self.EV.record(self.result, LL_val.item(), ll_nmi, norm_grad_ll,"LL")
+        self.EV.record(self.result, "LL", val=LL_val, nmi=ll_nmi, grad=norm_grad_ll, acc=ll_acc, ari=ll_ari)
 
     def outer_loop(self):
         for epoch in range(self.settings["max_ul_epochs"]):
@@ -421,7 +422,7 @@ class iteration:
             norm_grad_ul = torch.linalg.norm(grad_ul, ord =2).item()
 
         self.x = self.update_value(self.x, grad_ul, 0, self.settings["orth2"])
-        self.EV.record(self.result, UL_val.item(), ul_nmi, norm_grad_ul, "UL")
+        self.EV.record(self.result, "UL", val=UL_val, nmi=ul_nmi, grad=norm_grad_ul, acc=ul_acc, ari=ul_ari)
 
     def update_lambda_r(self):
         if self.settings["update_lambda_r"]:
@@ -457,18 +458,26 @@ class evaluation:
         labels_true = self.data[f"labels_true_{sources[i]}_{sources[j]}"]
         nmi = self.calculate_nmi(labels_true, labels_pred)
         ari = self.calculate_ari(labels_true, labels_pred)
-        return nmi, ari
+        acc = self.calculate_acc(labels_true, labels_pred)
+        return acc, nmi, ari
 
     def replace(self, labels):
         replaced_list = [self.mapping[item] for item in labels]
         return replaced_list
 
-    def calculate_nmi(self, labels_true, labels_pred, method:Literal["min","geometric","arithmetic","max"]="min"):
+    @staticmethod
+    def calculate_nmi(labels_true, labels_pred, method:Literal["min","geometric","arithmetic","max"]="min"):
         # 初步看，使用"min" 参数有好的结果
         return normalized_mutual_info_score(labels_true, labels_pred,average_method=method)
 
-    def calculate_ari(self, labels_true, labels_pred):
+    @staticmethod
+    def calculate_ari(labels_true, labels_pred):
         return adjusted_rand_score(labels_true, labels_pred)
+
+    def calculate_acc(self, labels_true, labels_pred):
+        reordered_labels = self.best_map(labels_true, labels_pred)
+        ratio = np.sum(labels_true == reordered_labels)/len(labels_true)
+        return ratio
 
     @staticmethod
     def judge_orth(F):
@@ -483,16 +492,21 @@ class evaluation:
         print(f"norm_UL:{norm_UL},norm_LL:{norm_LL}")
 
     @staticmethod
-    def record(result, val, nmi, norm_grad, type:Literal["UL","LL"]):
+    def record(result, type:Literal["UL", "LL"], **kwargs):
         match type:
             case "UL":
-                result["ul_val"].append(val)
-                result["ul_nmi"].append(nmi)
-                result["norm_grad_ul"].append(norm_grad)
+                result["ul_acc"].append(kwargs["acc"])
+                result["ul_val"].append(kwargs["val"])
+                result["ul_nmi"].append(kwargs["nmi"])
+                result["ul_ari"].append(kwargs["ari"])
+                result["norm_grad_ul"].append(kwargs["grad"])
+
             case "LL":
-                result["ll_val"].append(val)
-                result["ll_nmi"].append(nmi)
-                result["norm_grad_ll"].append(norm_grad)
+                resllt["ll_acc"].append(kwargs["acc"])
+                resllt["ll_val"].append(kwargs["val"])
+                resllt["ll_nmi"].append(kwargs["nmi"])
+                result["ll_ari"].append(kwargs["ari"])
+                resllt["norm_grad_ll"].append(kwargs["grad"])
         return result
 
     def plot_result(self,data, list, flag):
@@ -549,6 +563,49 @@ class evaluation:
             output["norm_grad_ul"] = result["norm_grad_ul"]
 
         return output
+
+    @staticmethod
+    def best_map(L1, L2):
+        """
+        Reorder labels in L2 to best match L1 using the Hungarian method.
+
+        Parameters:
+        - L1: array-like, ground truth labels (1D array).
+        - L2: array-like, labels to be permuted to match L1 (1D array).
+
+        Returns:
+        - newL2: array-like, reordered labels for L2.
+        """
+        L1 = np.asarray(L1).ravel()
+        L2 = np.asarray(L2).ravel()
+
+        # Ensure L1 and L2 have the same size
+        if L1.shape != L2.shape:
+            raise ValueError("L1 and L2 must have the same size.")
+
+        # Get unique labels and their counts in L1 and L2
+        unique_L1 = np.unique(L1)
+        unique_L2 = np.unique(L2)
+
+        nClass1 = len(unique_L1)
+        nClass2 = len(unique_L2)
+        nClass = max(nClass1, nClass2)
+
+        # Build the cost matrix
+        G = np.zeros((nClass, nClass), dtype=int)
+        for i, label1 in enumerate(unique_L1):
+            for j, label2 in enumerate(unique_L2):
+                G[i, j] = np.sum((L1 == label1) & (L2 == label2))
+
+        # Apply the Hungarian algorithm on the negative cost matrix to maximize the match
+        row_ind, col_ind = linear_sum_assignment(-G)
+
+        # Create a new array for L2 with reordered labels
+        newL2 = np.zeros_like(L2)
+        for i, j in zip(row_ind, col_ind):
+            newL2[L2 == unique_L2[j]] = unique_L1[i]
+
+        return newL2
 
 def create_instances(settings:dict, view2=0):
     settings0 = {"learning_rate": 0.01, "lambda_r": 1, "epsilon": 0.05, "update_learning_rate": True,

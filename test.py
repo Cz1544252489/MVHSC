@@ -53,7 +53,9 @@ for i in range(100):
             grad_x_UL = 2 * Proj_UL @ Theta_UL @ IT.x
             IT.update_value(IT.x, grad_x_UL)
 
-    nmi, ari = EV.assess(IT.x)
-    print(f"UL_val:{UL_val}, norm:{torch.linalg.norm(grad_x_UL, ord =2).item()}, nmi:{nmi}, ari:{ari}")
+    norm_grad_ul = torch.linalg.norm(grad_x_UL, ord=2)
+    ul_acc, ul_nmi, ul_ari = EV.assess(IT.x)
+    # IT.EV.record(IT.result, "UL", val=UL_val.item(), nmi=ul_nmi, grad=norm_grad_ul.item(), acc=ul_acc, ari=ul_ari)
+    print(f"val={UL_val.item()}, nmi={ul_nmi}, grad={norm_grad_ul.item()}, acc={ul_acc}, ari={ul_ari}")
 
 print("aa")
