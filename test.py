@@ -23,10 +23,11 @@ for _ in range(Epochs):
         IT.LL.y.copy_(y)
 
     norm_grad_ll = torch.linalg.norm(grad_ll_y, ord=2)
-    EV.record(IT.result,"LL", val=ll_val, grad=norm_grad_ll)
+    EV.record(IT.result,"LL", val=ll_val.item(), grad=norm_grad_ll.item())
 
 EV.use_result(IT.result,'dump')
 
-EV.use_result(IT.result, "load")
-EV.output_type(IT.result,["val","grad"])
+data = EV.use_result({}, "load")
+EV.plot_result(data, [], ["grad","val"])
+
 print("aa")
