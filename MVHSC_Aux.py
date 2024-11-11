@@ -24,7 +24,7 @@ from sklearn.cluster import KMeans, SpectralClustering
 from sklearn.metrics import normalized_mutual_info_score, adjusted_rand_score
 from sklearn.preprocessing import normalize
 
-np.random.seed(42)
+np.random.seed(44)
 # function part
 
 # data importation
@@ -335,7 +335,7 @@ class iteration:
             term2 = self.lambda_r * torch.trace(self.y @ self.y.T @ x @ x.T)
             # regularization = 1 * torch.norm(self.y, p=2)
             # print((term1+term2)/regularization)
-            return -(term1 + term2 )# - regularization)
+            return (term1 + term2 )# - regularization)
 
     class upper_level(nn.Module):
         def __init__(self, x, lambda_r):
@@ -346,7 +346,7 @@ class iteration:
         def forward(self, y):
             term1 = self.lambda_r * torch.trace(y @ y.T @ self.x @ self.x.T)
             # term2 = 0.1 * torch.linalg.norm(self.x)
-            return - (term1 )
+            return  (term1 )
 
     def update_value(self, x, grad, method: bool = False):
         x += self.settings["learning_rate"] * grad
@@ -502,11 +502,11 @@ class evaluation:
                 result["norm_grad_ul"].append(kwargs["grad"])
 
             case "LL":
-                resllt["ll_acc"].append(kwargs["acc"])
-                resllt["ll_val"].append(kwargs["val"])
-                resllt["ll_nmi"].append(kwargs["nmi"])
+                result["ll_acc"].append(kwargs["acc"])
+                result["ll_val"].append(kwargs["val"])
+                result["ll_nmi"].append(kwargs["nmi"])
                 result["ll_ari"].append(kwargs["ari"])
-                resllt["norm_grad_ll"].append(kwargs["grad"])
+                result["norm_grad_ll"].append(kwargs["grad"])
         return result
 
     def plot_result(self,data, list, flag):
@@ -555,6 +555,12 @@ class evaluation:
         if "nmi" in flag :
             output["ll_nmi"] = result["ll_nmi"]
             output["ul_nmi"] = result["ul_nmi"]
+        if "acc" in flag :
+            output["ll_acc"] = result["ll_acc"]
+            output["ul_acc"] = result["ul_acc"]
+        if "ari" in flag :
+            output["ll_ari"] = result["ll_ari"]
+            output["ul_ari"] = result["ul_ari"]
         if "val" in flag:
             output["ll_val"] =result["ll_val"]
             output["ul_val"] =result["ul_val"]
