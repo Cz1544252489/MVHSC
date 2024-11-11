@@ -25,12 +25,29 @@ class AA(nn.Module):
         z = self.x * self.y
         return z
 
+class BB(nn.Module):
+    def __init__(self,x,y):
+        super().__init__()
+        self.x = nn.Parameter(x)
+        self.y = nn.Parameter(y)
 
-f = AA(torch.tensor(10.1),torch.tensor(20.0))
-val = f()
+    def forward(self, t):
+        z = self.x * self.y * t
+        return z
 
-grad_x = torch.autograd.grad(val,f.x,retain_graph=True)
-grad_y = torch.autograd.grad(val,f.y, retain_graph=True)
+i = torch.tensor(1.1)
+j = torch.tensor(1.2)
+k = torch.tensor(1.3)
 
+
+f = AA(i,j)
+g = BB(i,j)
+val1 = f()
+val2 = g(k)
+grad_x1 = torch.autograd.grad(val1,f.x,retain_graph=True)
+grad_y1 = torch.autograd.grad(val1,f.y, retain_graph=True)
+
+grad_x2 = torch.autograd.grad(val2,g.x,retain_graph=True)
+grad_y2 = torch.autograd.grad(val2,g.y, retain_graph=True)
 
 print("aa")

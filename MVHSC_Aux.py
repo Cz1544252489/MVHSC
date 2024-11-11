@@ -318,37 +318,39 @@ class iteration:
         self.x = IN.x
         self.y = IN.y
         self.Theta = IN.Theta["LL"]
-        self.UL = self.upper_level(self.x, self.settings["lambda_r"])
-        self.LL = self.lower_level(self.y, self.settings["lambda_r"], self.Theta)
+        self.UL = self.upper_level(self.x, self.y, self.settings["lambda_r"])
+        self.LL = self.lower_level(self.y, self.y, self.settings["lambda_r"], self.Theta)
 
     class lower_level(nn.Module):
-        def __init__(self, y, lambda_r, Theta):
+        def __init__(self, x, y, lambda_r, Theta):
             # 变量是F_LL也是原来的F
             super().__init__()
+            self.x = nn.Parameter(x)
             self.y = nn.Parameter(y)
             self.lambda_r = lambda_r
             self.Theta = Theta
 
-        def forward(self, x):
+        def forward(self):
             term1 = torch.trace(self.y.T @ self.Theta @ self.y)
-            term2 = self.lambda_r * torch.trace(self.y @ self.y.T @ x @ x.T)
+            term2 = self.lambda_r * torch.trace(self.y @ self.y.T @ self.x @ self.x.T)
             # regularization = 1 * torch.norm(self.y, p=2)
             # print((term1+term2)/regularization)
             return (term1 + term2 )# - regularization)
 
     class upper_level(nn.Module):
-        def __init__(self, x, lambda_r):
+        def __init__(self, x, y, lambda_r):
             super().__init__()
             self.x = nn.Parameter(x)
+            self.y = nn.Parameter(y)
             self.lambda_r = lambda_r
 
-        def forward(self, y):
-            term1 = self.lambda_r * torch.trace(y @ y.T @ self.x @ self.x.T)
+        def forward(self):
+            term1 = self.lambda_r * torch.trace(self.y @ self.y.T @ self.x @ self.x.T)
             # term2 = 0.1 * torch.linalg.norm(self.x)
             return  (term1 )
 
     def update_value(self, x, grad, method: bool = False):
-        x += self.settings["learning_rate"] * grad
+        x = x + self.settings["learning_rate"] * grad
         if method:
             x, _ = torch.linalg.qr(x, mode="reduced")
         return x
@@ -498,17 +500,17 @@ class evaluation:
     def record(result, type:Literal["UL", "LL"], **kwargs):
         match type:
             case "UL":
-                result["ul_acc"].append(kwargs["acc"])
+                #result["ul_acc"].append(kwargs["acc"])
                 result["ul_val"].append(kwargs["val"])
-                result["ul_nmi"].append(kwargs["nmi"])
-                result["ul_ari"].append(kwargs["ari"])
+                #result["ul_nmi"].append(kwargs["nmi"])
+                #result["ul_ari"].append(kwargs["ari"])
                 result["norm_grad_ul"].append(kwargs["grad"])
 
             case "LL":
-                result["ll_acc"].append(kwargs["acc"])
+                #result["ll_acc"].append(kwargs["acc"])
                 result["ll_val"].append(kwargs["val"])
-                result["ll_nmi"].append(kwargs["nmi"])
-                result["ll_ari"].append(kwargs["ari"])
+                #result["ll_nmi"].append(kwargs["nmi"])
+                #result["ll_ari"].append(kwargs["ari"])
                 result["norm_grad_ll"].append(kwargs["grad"])
         return result
 

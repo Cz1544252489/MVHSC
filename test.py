@@ -12,58 +12,21 @@ settings = {"learning_rate": 0.01, "lambda_r": 1, "epsilon": 0.05, "update_learn
              "plot_vline": True, "grad_method":"auto"}
 
 IT = iteration(EV, IN, settings)
+
 Epochs = 10
-optimizer = torch.optim.Adam([IT.LL.y], lr=0.01)
-for i in range(Epochs):
-    LL_val = IT.LL(IT.x)
+for _ in range(Epochs):
+    ll_val = IT.LL()
+    grad_ll_y = torch.autograd.grad(ll_val, IT.LL.y, retain_graph=True)[0].clone()
 
-    grad_y_LL_auto = torch.autograd.grad(LL_val, IT.LL.y, retain_graph=True)[0]
-    # (LL_val).backward(retain_graph= True)
-    # grad_y_LL_auto = IT.LL.y.grad.clone()
-    # optimizer.step()
+    y = IT.update_value(IT.LL.y, grad_ll_y)
+    with torch.no_grad():
+        IT.LL.y.copy_(y)
 
-    Theta_LL = IT.Theta + IT.settings["lambda_r"] * IT.x @ IT.x.T
-    Proj_LL = torch.eye(IT.y.shape[0]) - IT.y @ IT.y.T
-    grad_y_LL_man = 2 * Proj_LL @ Theta_LL @ IT.y
+    norm_grad_ll = torch.linalg.norm(grad_ll_y, ord=2)
+    EV.record(IT.result,"LL", val=ll_val, grad=norm_grad_ll)
 
-    grad_y_LL = grad_y_LL_auto
+EV.use_result(IT.result,'dump')
 
-    IT.update_value(IT.y, grad_y_LL)
-#
-    norm_grad_ll = torch.linalg.norm(grad_y_LL, ord=2)
-    ll_acc, ll_nmi, ll_ari = EV.assess(IT.y)
-    IT.EV.record(IT.result, "LL", val=LL_val.item(), nmi=ll_nmi, grad=norm_grad_ll.item(), acc=ll_acc, ari=ll_ari)
-    # print(f"val={LL_val.item()}, nmi={ll_nmi}, grad={norm_grad_ll.item()}, acc={ll_acc}, ari={ll_ari}")
-
-opt_ul = torch.optim.Adam([IT.UL.x], lr=0.01)
-
-for i in range(Epochs):
-    UL_val = IT.UL(IT.y)
-    if i>0:
-        IT.UL.x.grad.zero_()
-    (UL_val).backward(retain_graph= True)
-    grad_x_UL_auto = IT.UL.x.grad.clone()
-    # opt_ul.step()
-
-    Theta_UL = IT.settings["lambda_r"] * IT.y @ IT.y.T
-    Proj_UL = torch.eye(IT.y.shape[0]) - IT.x @ IT.x.T
-    grad_x_UL_man = 2 * Proj_UL @ Theta_UL @ IT.x
-
-
-    grad_x_UL = grad_x_UL_auto
-
-    IT.update_value(IT.x, grad_x_UL)
-
-    norm_grad_ul = torch.linalg.norm(grad_x_UL, ord=2)
-    ul_acc, ul_nmi, ul_ari = EV.assess(IT.x)
-    IT.EV.record(IT.result, "UL", val=UL_val.item(), nmi=ul_nmi, grad=norm_grad_ul.item(), acc=ul_acc, ari=ul_ari)
-    # print(f"val={UL_val.item()}, nmi={ul_nmi}, grad={norm_grad_ul.item()}, acc={ul_acc}, ari={ul_ari}")
-
-EV.use_result(IT.result, "dump")
-
-
-data = EV.use_result({}, "load")
-EV.plot_result(data, [], ["nmi","grad","val","acc","ari"])
-# print(f"best_ul_nmi:{IT.result["best_ul_nmi"]}, best_ll_nmi:{IT.result["best_ll_nmi"]}")
-
+EV.use_result(IT.result, "load")
+EV.output_type(IT.result,["val","grad"])
 print("aa")
