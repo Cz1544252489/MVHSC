@@ -2,7 +2,6 @@
 
 import os
 
-from matplotlib.lines import lineStyles
 
 os.environ["OMP_NUM_THREADS"] = "1"
 
@@ -353,6 +352,10 @@ class iteration:
         if method:
             x, _ = torch.linalg.qr(x, mode="reduced")
         return x
+
+    def get_grad_ll_auto(self):
+        LL_val = self.LL(self.x)
+
 
     def inner_loop(self):
         for epoch in range(self.settings["max_ll_epochs"]):
