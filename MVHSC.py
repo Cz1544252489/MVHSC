@@ -1,24 +1,22 @@
-import torch
-from MVHSC_Aux import data_importation, initialization, evaluation, clustering, iteration
+from MVHSC_Aux import create_instances
 
-DI = data_importation(seed=42)
-IN = initialization(DI)
-CL = clustering()
-EV = evaluation(DI, CL)
 
 settings = {"learning_rate": 0.01, "lambda_r": 1, "epsilon": 0.05, "update_learning_rate": True,
-             "max_ll_epochs": 90, "max_ul_epochs": 90,
+             "max_ll_epochs": 300, "max_ul_epochs": 300,
              "update_lambda_r": False, "use_proj": True,
              "plot_vline": True, "grad_method":"auto"}
 
-IT = iteration(EV, IN, settings)
 
-IT.inner_loop()
-IT.outer_loop()
+DI, IN, CL, EV, IT = create_instances(settings,view2=4, seed_num= 42)
 
-EV.use_result(IT.result,'dump')
+for _ in range(10):
+    IT.inner_loop()
+    IT.outer_loop()
 
-data = EV.use_result({}, "load")
+file_name = "result4.json"
+EV.use_result(IT.result,'dump', file_name)
+
+data = EV.use_result({}, "load", file_name)
 EV.plot_result(data, [], ["grad","val","nmi","acc","ari"])
 
 

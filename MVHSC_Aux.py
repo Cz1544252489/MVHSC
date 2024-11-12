@@ -517,8 +517,7 @@ class evaluation:
         plt.show()
 
     @staticmethod
-    def use_result(data, method: Literal["dump","load"]):
-        file_name = "result.json"
+    def use_result(data, method: Literal["dump","load"], file_name):
         match method:
             case "dump":
                 with open(file_name, "w") as file:
@@ -593,18 +592,21 @@ class evaluation:
 
         return newL2
 
-def create_instances(settings:dict, view2=0):
-    settings0 = {"learning_rate": 0.01, "lambda_r": 1, "epsilon": 0.05, "update_learning_rate": True,
-                "max_ll_epochs": 30, "max_ul_epochs": 20, "orth1": False,
-                "orth2": True, "update_lambda_r": False, "use_proj": True,
-                 "plot_vline":True}
-    settings = settings0 | settings
-    DI = data_importation(view2 = view2)
+def create_instances(settings:dict, view2=0, seed_num=42):
+    DI = data_importation(view2=view2, seed=seed_num)
     IN = initialization(DI)
     CL = clustering()
     EV = evaluation(DI, CL)
+
+    settings0 = {"learning_rate": 0.01, "lambda_r": 1, "epsilon": 0.05, "update_learning_rate": True,
+                "max_ll_epochs": 300, "max_ul_epochs": 300,
+                "update_lambda_r": False, "use_proj": True,
+                "plot_vline": True, "grad_method": "auto"}
+    settings = settings0 | settings
+
     IT = iteration(EV, IN, settings)
     return DI, IN, CL, EV, IT
+
 
 class test_part:
 
