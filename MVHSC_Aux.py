@@ -294,6 +294,7 @@ class clustering:
         kmeans = KMeans(n_clusters=num_type, random_state=0)
         spectral = SpectralClustering(n_clusters=num_type, affinity='nearest_neighbors',
                                       assign_labels='kmeans', random_state=42)
+
         if method == "spectral":
             labels = spectral.fit_predict(F)
         elif method == "normal":
@@ -318,8 +319,8 @@ class iteration:
         self.x = IN.x
         self.y = IN.y
         self.Theta = IN.Theta["LL"]
-        # self.UL = self.upper_level(self.x, self.y, self.settings["lambda_r"])
-        # self.LL = self.lower_level(self.x, self.y, self.settings["lambda_r"], self.Theta)
+        self.UL = self.upper_level(self.x, self.y, self.settings["lambda_r"])
+        self.LL = self.lower_level(self.x, self.y, self.settings["lambda_r"], self.Theta)
 
     def syn(self):
         self.x = self.LL.x
@@ -334,14 +335,11 @@ class iteration:
             self.Theta = Theta
 
         def forward(self):
-            yyt = self.y @ self.y.T
-            Theta_plus_xxt = self.Theta + self.lambda_r * self.x @ self.x.T
-            return torch.trace(yyt @ Theta_plus_xxt)
-            # term1 = torch.trace(self.y.T @ self.Theta @ self.y)
-            # term2 = self.lambda_r * torch.trace(self.y @ self.y.T @ self.x @ self.x.T)
+            term1 = torch.trace(self.y.T @ self.Theta @ self.y)
+            term2 = self.lambda_r * torch.trace(self.y @ self.y.T @ self.x @ self.x.T)
             # regularization = 1 * torch.norm(self.y, p=2)
             # print((term1+term2)/regularization)
-            # return (term1 + term2 )# - regularization)
+            return (term1 + term2 )# - regularization)
 
     class upper_level(nn.Module):
         def __init__(self, x, y, lambda_r):
@@ -363,79 +361,48 @@ class iteration:
 
     def get_grad_y_ll_man(self, x, y):
         Theta_LL = self.Theta + self.settings["lambda_r"] * x @ x.T
+        return  2 * Theta_LL
+
+    def Proj(self, input, y):
         Proj_LL = torch.eye(y.shape[0]) - y @ y.T
-        return  2 * Proj_LL @ Theta_LL @ y
+        return Proj_LL @ input
 
 
     def inner_loop(self):
         for epoch in range(self.settings["max_ll_epochs"]):
-            LL_val = self.LL(self.x, self.Theta["LL"], self.settings["lambda_r"])
-            UL_val = self.UL(self.y, self.settings["lambda_r"])
-            match self.grad_method:
+            ll_val = self.LL()
+
+            match self.settings["grad_method"]:
+                case "auto":
+                    grad_ll_y = self.Proj(torch.autograd.grad(ll_val, self.LL.y, retain_graph=True)[0], self.LL.y)
                 case "man":
-                    Theta_ll = self.Theta["LL"] + self.settings["lambda_r"]* self.x @ self.x.T
-                    if self.settings["use_proj"]:
-                        Proj_ll = torch.eye(self.y.shape[0]) - self.y @ self.y.T
-                        grad_ll = 2 * Proj_ll @ Theta_ll @ self.y
-                    else:
-                        grad_ll = 2 * Theta_ll @ self.y
+                    grad_ll_y = self.Proj(self.get_grad_y_ll_man(self.LL.x, self.LL.y), self.LL.y)
 
-                    Theta_ul = self.settings["lambda_r"]* self.y @ self.y.T
-                    if self.settings["use_proj"]:
-                        Proj_ul = torch.eye(self.y.shape[0])  - self.x @ self.x.T
-                        grad_ul = 2 * Proj_ul @ Theta_ul @ self.x
-                    else:
-                        grad_ul = 2 * Theta_ul @ self.x
+            self.y = self.update_value(self.LL.y, grad_ll_y)
+            with torch.no_grad():
+                self.LL.y.copy_(self.y)
 
-            try:
-                grad_ll
-            except NameError:
-                print("grad_ll未定义")
-            try:
-                grad_ul
-            except NameError:
-                print("grad_ul未定义")
+            norm_grad_ll = torch.linalg.norm(grad_ll_y, ord=2)
 
-            if self.settings["update_learning_rate"]:
-                self.y = self.update_value(self.y, grad_ll, self.settings["learning_rate"], self.settings["orth1"])
-            else:
-                self.y = self.update_value(self.y, grad_ll, self.settings["learning_rate"],
-                                                 self.settings["orth1"])
-            ll_acc, ll_nmi, ll_ari = self.EV.assess(self.y)
-            if ll_nmi > self.result["best_ll_nmi"]:
-                self.result["best_ll_nmi"] = ll_nmi
-                self.result["best_F_ll"] = self.y.tolist()
-            norm_grad_ll = torch.linalg.norm(grad_ll, ord =2).item()
-
-        self.y = self.update_value(self.y, grad_ll,0, self.settings["orth2"])
-        self.EV.record(self.result, "LL", val=LL_val, nmi=ll_nmi, grad=norm_grad_ll, acc=ll_acc, ari=ll_ari)
+            ll_acc, ll_nmi, ll_ari = self.EV.assess(self.y.detach().numpy())
+            self.EV.record(self.result,"LL", val=ll_val.item(), grad=norm_grad_ll.item(), acc=ll_acc, nmi=ll_nmi, ari=ll_ari)
 
     def outer_loop(self):
         for epoch in range(self.settings["max_ul_epochs"]):
-            UL_val = self.UL(self.y, self.settings["lambda_r"])
-            match self.grad_method:
-                case "man":
-                    Theta_ = self.settings["lambda_r"]* self.y @ self.y.T
-                    if self.settings["use_proj"]:
-                        Proj_ = torch.eye(self.y.shape[0])  - self.x @ self.x.T
-                        grad_ul = 2 * Proj_ @ Theta_ @ self.x
-                    else:
-                        grad_ul = 2 * Theta_ @ self.x
+            ul_val = self.UL()
 
-            try:
-                grad_ul
-            except NameError:
-                print("grad_ul未定义")
+            match self.settings["grad_method"]:
+                case "auto":
+                    grad_ul_x = self.Proj(torch.autograd.grad(ul_val, self.UL.x, retain_graph=True)[0], self.UL.x)
 
-            self.x = self.update_value(self.x, grad_ul, self.settings["learning_rate"], self.settings["orth1"])
-            ul_nmi, _ = self.EV.assess(self.x)
-            if ul_nmi > self.result["best_ul_nmi"]:
-                self.result["best_ul_nmi"] = ul_nmi
-                self.result["best_F_ul"] = self.x.tolist()
-            norm_grad_ul = torch.linalg.norm(grad_ul, ord =2).item()
+            self.x = self.update_value(self.UL.x, grad_ul_x)
+            with torch.no_grad():
+                self.UL.x.copy_(self.x)
 
-        self.x = self.update_value(self.x, grad_ul, 0, self.settings["orth2"])
-        self.EV.record(self.result, "UL", val=UL_val, nmi=ul_nmi, grad=norm_grad_ul, acc=ul_acc, ari=ul_ari)
+            norm_grad_ul = torch.linalg.norm(grad_ul_x, ord=2)
+
+            ul_acc, ul_nmi, ul_ari = self.EV.assess(self.x.detach().numpy())
+            self.EV.record(self.result, "UL", val=ul_val.item(), grad=norm_grad_ul.item(), acc=ul_acc, nmi=ul_nmi, ari=ul_ari)
 
     def update_lambda_r(self):
         if self.settings["update_lambda_r"]:
@@ -508,17 +475,17 @@ class evaluation:
     def record(result, type:Literal["UL", "LL"], **kwargs):
         match type:
             case "UL":
-                #result["ul_acc"].append(kwargs["acc"])
+                result["ul_acc"].append(kwargs["acc"])
                 result["ul_val"].append(kwargs["val"])
-                #result["ul_nmi"].append(kwargs["nmi"])
-                #result["ul_ari"].append(kwargs["ari"])
+                result["ul_nmi"].append(kwargs["nmi"])
+                result["ul_ari"].append(kwargs["ari"])
                 result["norm_grad_ul"].append(kwargs["grad"])
 
             case "LL":
-                #result["ll_acc"].append(kwargs["acc"])
+                result["ll_acc"].append(kwargs["acc"])
                 result["ll_val"].append(kwargs["val"])
-                #result["ll_nmi"].append(kwargs["nmi"])
-                #result["ll_ari"].append(kwargs["ari"])
+                result["ll_nmi"].append(kwargs["nmi"])
+                result["ll_ari"].append(kwargs["ari"])
                 result["norm_grad_ll"].append(kwargs["grad"])
         return result
 
