@@ -23,13 +23,12 @@ from sklearn.cluster import KMeans, SpectralClustering
 from sklearn.metrics import normalized_mutual_info_score, adjusted_rand_score
 from sklearn.preprocessing import normalize
 
-np.random.seed(44)
 # function part
 
 # data importation
 
 class data_importation:
-    def __init__(self, view_num:Literal[1,2,3]=2, view2:Literal[0,2,4] = 0):
+    def __init__(self, view_num:Literal[1,2,3]=2, view2:Literal[0,2,4] = 0, seed:int=44):
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.view_num = view_num
         self.view2 = view2
@@ -56,6 +55,7 @@ class data_importation:
         ]
         self.data0 = self.get_data0()
         self.data = self.get_data()
+        np.random.seed(seed)
 
     @staticmethod
     def normalize_data(X : csr_matrix):
@@ -318,12 +318,15 @@ class iteration:
         self.x = IN.x
         self.y = IN.y
         self.Theta = IN.Theta["LL"]
-        self.UL = self.upper_level(self.x, self.y, self.settings["lambda_r"])
-        self.LL = self.lower_level(self.y, self.y, self.settings["lambda_r"], self.Theta)
+        # self.UL = self.upper_level(self.x, self.y, self.settings["lambda_r"])
+        # self.LL = self.lower_level(self.x, self.y, self.settings["lambda_r"], self.Theta)
+
+    def syn(self):
+        self.x = self.LL.x
+        self.y = self.LL.y
 
     class lower_level(nn.Module):
         def __init__(self, x, y, lambda_r, Theta):
-            # 变量是F_LL也是原来的F
             super().__init__()
             self.x = nn.Parameter(x)
             self.y = nn.Parameter(y)
@@ -331,11 +334,14 @@ class iteration:
             self.Theta = Theta
 
         def forward(self):
-            term1 = torch.trace(self.y.T @ self.Theta @ self.y)
-            term2 = self.lambda_r * torch.trace(self.y @ self.y.T @ self.x @ self.x.T)
+            yyt = self.y @ self.y.T
+            Theta_plus_xxt = self.Theta + self.lambda_r * self.x @ self.x.T
+            return torch.trace(yyt @ Theta_plus_xxt)
+            # term1 = torch.trace(self.y.T @ self.Theta @ self.y)
+            # term2 = self.lambda_r * torch.trace(self.y @ self.y.T @ self.x @ self.x.T)
             # regularization = 1 * torch.norm(self.y, p=2)
             # print((term1+term2)/regularization)
-            return (term1 + term2 )# - regularization)
+            # return (term1 + term2 )# - regularization)
 
     class upper_level(nn.Module):
         def __init__(self, x, y, lambda_r):
@@ -355,8 +361,10 @@ class iteration:
             x, _ = torch.linalg.qr(x, mode="reduced")
         return x
 
-    def get_grad_ll_auto(self):
-        LL_val = self.LL(self.x)
+    def get_grad_y_ll_man(self, x, y):
+        Theta_LL = self.Theta + self.settings["lambda_r"] * x @ x.T
+        Proj_LL = torch.eye(y.shape[0]) - y @ y.T
+        return  2 * Proj_LL @ Theta_LL @ y
 
 
     def inner_loop(self):

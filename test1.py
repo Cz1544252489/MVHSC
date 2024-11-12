@@ -14,6 +14,7 @@ settings = {"learning_rate": 0.01, "lambda_r": 1, "epsilon": 0.05, "update_learn
 
 IT = iteration(EV, IN, settings)
 
+
 class AA(nn.Module):
 
     def __init__(self, x, y):
@@ -35,9 +36,9 @@ class BB(nn.Module):
         z = self.x * self.y * t
         return z
 
-i = torch.tensor(1.1)
-j = torch.tensor(1.2)
-k = torch.tensor(1.3)
+i = torch.tensor(1.0)
+j = torch.tensor(2.0)
+k = torch.tensor(3.0)
 
 
 f = AA(i,j)
