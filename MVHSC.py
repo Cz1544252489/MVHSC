@@ -2,10 +2,10 @@ from MVHSC_Aux import create_instances
 
 
 settings = {"learning_rate": 0.01, "lambda_r": 1, "epsilon": 0.05, "update_learning_rate": True,
-             "max_ll_epochs": 20, "max_ul_epochs": 1,
+             "max_ll_epochs": 500, "max_ul_epochs": 1,
              "update_lambda_r": False, "use_proj": True,
              "plot_vline": True, "grad_method":"auto",
-            "s_u": 1, "s_l": 1, "mu": 0,
+            "s_u": 1, "s_l": 1, "mu": 1,
             "alpha": 1, "beta":1 ,"theta":0.1
             }
 
