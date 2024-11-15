@@ -371,18 +371,26 @@ class iteration:
     def inner_loop(self):
         for epoch in range(self.settings["max_ll_epochs"]):
             ll_val = self.LL()
-
             match self.settings["grad_method"]:
                 case "auto":
-                    grad_ll_y = self.Proj(torch.autograd.grad(ll_val, self.LL.y, retain_graph=True)[0], self.LL.y)
+                    grad_ll_y = self.Proj(torch.autograd.grad(ll_val, self.LL.y, retain_graph=True)[0], self.y)
                 case "man":
                     grad_ll_y = self.Proj(self.get_grad_y_ll_man(self.LL.x, self.LL.y), self.LL.y)
 
-            self.y = self.update_value(self.LL.y, grad_ll_y)
+            # ul_val = self.UL()
+            # match self.settings["grad_method"]:
+            #     case "auto":
+                    grad_ul_y = self.Proj(torch.autograd.grad(ul_val, self.UL.y, retain_graph=True)[0], self.LL.y)
+
+            # grad_y = self.settings["mu"] * self.settings["alpha"] * grad_ul_y + (1-self.settings["mu"]) *self.settings["beta"] * grad_ll_y
+            grad_y = grad_ll_y
+            # grad_y = self.Proj(grad_y_, self.LL.y)
+            y = self.update_value(self.LL.y, grad_y)
+            self.y = self.Proj(y, self.y)
             with torch.no_grad():
                 self.LL.y.copy_(self.y)
 
-            norm_grad_ll = torch.linalg.norm(grad_ll_y, ord=2)
+            norm_grad_ll = torch.linalg.norm(grad_y, ord=2)
 
             ll_acc, ll_nmi, ll_ari = self.EV.assess(self.y.detach().numpy())
             self.EV.record(self.result,"LL", val=ll_val.item(), grad=norm_grad_ll.item(), acc=ll_acc, nmi=ll_nmi, ari=ll_ari)
