@@ -2,7 +2,6 @@
 
 import os
 
-
 os.environ["OMP_NUM_THREADS"] = "1"
 
 from scipy.optimize import linear_sum_assignment
@@ -308,9 +307,9 @@ class clustering:
 
 class iteration:
 
-    def __init__(self, EV, IN, settings):
+    def __init__(self, EV, IN, S):
         self.grad_method = "man"
-        self.settings = settings
+        self.S = S
         self.result = {"ll_nmi": [], "norm_grad_ll": [], "ll_val": [], "ll_acc": [], "ll_ari":[],
                   "ul_nmi": [], "norm_grad_ul": [], "ul_val": [], "ul_acc": [], "ul_ari": [],
                   "best_ll_nmi": 0, "best_ul_nmi": 0}
@@ -319,8 +318,14 @@ class iteration:
         self.x = IN.x
         self.y = IN.y
         self.Theta = IN.Theta["LL"]
-        self.UL = self.upper_level(self.x, self.y, self.settings["lambda_r"])
-        self.LL = self.lower_level(self.x, self.y, self.settings["lambda_r"], self.Theta)
+        self.UL = self.upper_level(self.x, self.y, self.S["lambda_r"])
+        self.LL = self.lower_level(self.x, self.y, self.S["lambda_r"], self.Theta)
+        self.O = torch.zeros(self.x.shape[0], dtype=torch.float64)
+        self.Z = self.O
+        self.I = torch.eye(self.x.shape[0], dtype=torch.float64)
+        self.grad_x = self.O
+        self.p_u = self.S["mu"] * self.S["alpha"] * self.S["s_u"]
+        self.p_l = (1 - self.S["mu"]) * self.S["beta"] * self.S["s_l"]
 
     def syn(self):
         self.x = self.LL.x
@@ -354,67 +359,79 @@ class iteration:
             return  (term1 )
 
     def update_value(self, x, grad, method: bool = False):
-        x = x + self.settings["learning_rate"] * grad
+        x = x + self.S["learning_rate"] * grad
         if method:
             x, _ = torch.linalg.qr(x, mode="reduced")
         return x
 
     def get_grad_y_ll_man(self, x, y):
-        Theta_LL = self.Theta + self.settings["lambda_r"] * x @ x.T
+        Theta_LL = self.Theta + self.S["lambda_r"] * x @ x.T
         return  2 * Theta_LL
 
-    def Proj(self, input, y):
+    def get_grad_y_ul_man(self, x, y):
+        # 需要修改
+        Theta_UL = self.Theta + self.S["lambda_r"] * x @ x.T
+        return  2 * Theta_UL
+
+    @staticmethod
+    def Proj(vector, y):
         Proj_LL = torch.eye(y.shape[0]) - y @ y.T
-        return Proj_LL @ input
+        return Proj_LL @ vector
 
 
     def inner_loop(self):
-        for epoch in range(self.settings["max_ll_epochs"]):
+        # 使用向前传播方法计算超梯度
+        self.Z = self.O
+        for epoch in range(self.S["max_ll_epochs"]):
             ll_val = self.LL()
-            match self.settings["grad_method"]:
-                case "auto":
-                    grad_ll_y = self.Proj(torch.autograd.grad(ll_val, self.LL.y, retain_graph=True)[0], self.LL.y)
-                case "man":
-                    grad_ll_y = self.Proj(self.get_grad_y_ll_man(self.LL.x, self.LL.y), self.LL.y)
+            ll_y = torch.autograd.grad(ll_val, self.LL.y, create_graph=True)[0]
 
             ul_val = self.UL()
-            match self.settings["grad_method"]:
-                case "auto":
-                    grad_ul_y = self.Proj(torch.autograd.grad(ul_val, self.UL.y, retain_graph=True)[0], self.LL.y)
+            ul_y = torch.autograd.grad(ul_val, self.UL.y, create_graph=True)[0]
 
-            grad_y = self.settings["mu"] * self.settings["alpha"] * grad_ul_y + (1-self.settings["mu"]) *self.settings["beta"] * grad_ll_y
-            self.y = self.update_value(self.LL.y, grad_y)
+            grad_y = self.Proj(self.S["mu"] * self.S["alpha"] * ul_y + (1-self.S["mu"]) * self.S["beta"] * ll_y, self.y)
+
+            self.y = self.update_value(self.y, grad_y)
             with torch.no_grad():
                 self.LL.y.copy_(self.y)
+                self.UL.y.copy_(self.y)
 
-            norm_grad_ll = torch.linalg.norm(grad_y, ord=2)
-
+            norm_grad_ll =torch.linalg.norm(grad_y, ord=2)
             ll_acc, ll_nmi, ll_ari = self.EV.assess(self.y.detach().numpy())
-            self.EV.record(self.result,"LL", val=ll_val.item(), grad=norm_grad_ll.item(), acc=ll_acc, nmi=ll_nmi, ari=ll_ari)
+            self.EV.record(self.result, "LL", val=ll_val.item(), grad=norm_grad_ll.item(), acc=ll_acc, nmi=ll_nmi, ari=ll_ari)
+
+            ul_ll_xy = 2 * self.S["lambda_r"] * (self.y @ self.x.T + self.x @ self.y.T) # 混合二阶偏导
+            ul_yy = 2 * self.S["lambda_r"] * self.x @ self.x.T
+            ll_yy = 2 * self.Theta + ul_yy
+
+            A = -(self.p_u + self.p_l) * ul_ll_xy
+            B = self.I - (self.p_u * ul_yy + self.p_l * ll_yy)
+            self.Z = B @ self.Z + A
+
+        ul_val = self.UL()
+        ul_x = torch.autograd.grad(ul_val, self.UL.x, create_graph=True)[0]
+        ll_val = self.LL()
+        ll_x = torch.autograd.grad(ll_val, self.LL.x, create_graph=True)[0]
+        self.grad_x = ul_x + self.Z.T @ ll_x
+
 
     def outer_loop(self):
-        for epoch in range(self.settings["max_ul_epochs"]):
-            ul_val = self.UL()
-
-            match self.settings["grad_method"]:
-                case "auto":
-                    grad_ul_x = self.Proj(torch.autograd.grad(ul_val, self.UL.x, retain_graph=True)[0], self.UL.x)
-
-            self.x = self.update_value(self.UL.x, grad_ul_x)
+        for epoch in range(self.S["max_ul_epochs"]):
+            self.x = self.update_value(self.x, self.grad_x)
             with torch.no_grad():
-                self.UL.x.copy_(self.x)
-
-            norm_grad_ul = torch.linalg.norm(grad_ul_x, ord=2)
+                self.LL.x.copy_(self.x)
+                self.LL.y.copy_(self.y)
 
             ul_acc, ul_nmi, ul_ari = self.EV.assess(self.x.detach().numpy())
-            self.EV.record(self.result, "UL", val=ul_val.item(), grad=norm_grad_ul.item(), acc=ul_acc, nmi=ul_nmi, ari=ul_ari)
+            norm_grad_x = torch.linalg.norm(self.grad_x, ord=2)
+            self.EV.record(self.result,"UL", grad=norm_grad_x.item(), acc=ul_acc, nmi=ul_nmi, ari=ul_ari)
 
     def update_lambda_r(self):
-        if self.settings["update_lambda_r"]:
+        if self.S["update_lambda_r"]:
             val = torch.trace(self.x.T @ (torch.eye(self.x.shape[0]) - self.y @ self.y.T) @ self.x)
             print(val.item())
-            if val <= self.settings["epsilon"]:
-                self.settings["lambda_r"]= self.settings["lambda_r"]/2
+            if val <= self.S["epsilon"]:
+                self.S["lambda_r"]= self.S["lambda_r"]/2
                 return True
             else:
                 return False
@@ -481,7 +498,7 @@ class evaluation:
         match type:
             case "UL":
                 result["ul_acc"].append(kwargs["acc"])
-                result["ul_val"].append(kwargs["val"])
+                # result["ul_val"].append(kwargs["val"])
                 result["ul_nmi"].append(kwargs["nmi"])
                 result["ul_ari"].append(kwargs["ari"])
                 result["norm_grad_ul"].append(kwargs["grad"])
@@ -597,19 +614,19 @@ class evaluation:
 
         return newL2
 
-def create_instances(settings:dict, view2=0, seed_num=42):
+def create_instances(S:dict, view2=0, seed_num=42):
     DI = data_importation(view2=view2, seed=seed_num)
     IN = initialization(DI)
     CL = clustering()
     EV = evaluation(DI, CL)
 
-    settings0 = {"learning_rate": 0.01, "lambda_r": 1, "epsilon": 0.05, "update_learning_rate": True,
+    S0 = {"learning_rate": 0.01, "lambda_r": 1, "epsilon": 0.05, "update_learning_rate": True,
                 "max_ll_epochs": 300, "max_ul_epochs": 300,
                 "update_lambda_r": False, "use_proj": True,
                 "plot_vline": True, "grad_method": "auto"}
-    settings = settings0 | settings
+    S = S0 | S
 
-    IT = iteration(EV, IN, settings)
+    IT = iteration(EV, IN, S)
     return DI, IN, CL, EV, IT
 
 
