@@ -324,12 +324,19 @@ class iteration:
         self.Z = self.O
         self.I = torch.eye(self.x.shape[0], dtype=torch.float64)
         self.grad_x = self.O
-        self.p_u = self.S["mu"] * self.S["alpha"] * self.S["s_u"]
-        self.p_l = (1 - self.S["mu"]) * self.S["beta"] * self.S["s_l"]
+        self.grad_y = self.O
+        self.alpha = lambda x: 1/(x+1)
+        self.beta = lambda x: 1/(x+1)
+        self.p_u = 0
+        self.p_l = 0
 
-    def syn(self):
-        self.x = self.LL.x
-        self.y = self.LL.y
+    @staticmethod
+    def alpha_k(k):
+        return 1/k
+
+    @staticmethod
+    def beta_k(k):
+        return 1/k
 
     class lower_level(nn.Module):
         def __init__(self, x, y, lambda_r, Theta):
@@ -389,30 +396,33 @@ class iteration:
             ul_val = self.UL()
             ul_y = torch.autograd.grad(ul_val, self.UL.y, create_graph=True)[0]
 
-            grad_y = self.Proj(self.S["mu"] * self.S["alpha"] * ul_y + (1-self.S["mu"]) * self.S["beta"] * ll_y, self.y)
+            self.p_u = self.S["mu"] * self.alpha(epoch) * self.S["s_u"]
+            self.p_l = (1 - self.S["mu"]) * self.beta(epoch) * self.S["s_l"]
 
-            self.y = self.update_value(self.y, grad_y)
+            self.grad_y = self.Proj(self.p_u * ul_y + self.p_l * ll_y, self.y)
+
+            self.y = self.update_value(self.y, self.grad_y)
             with torch.no_grad():
                 self.LL.y.copy_(self.y)
                 self.UL.y.copy_(self.y)
 
-            norm_grad_ll =torch.linalg.norm(grad_y, ord=2)
+            norm_grad_ll =torch.linalg.norm(self.grad_y, ord=2)
             ll_acc, ll_nmi, ll_ari = self.EV.assess(self.y.detach().numpy())
             self.EV.record(self.result, "LL", val=ll_val.item(), grad=norm_grad_ll.item(), acc=ll_acc, nmi=ll_nmi, ari=ll_ari)
 
-            ul_ll_xy = 2 * self.S["lambda_r"] * (self.y @ self.x.T + self.x @ self.y.T) # 混合二阶偏导
-            ul_yy = 2 * self.S["lambda_r"] * self.x @ self.x.T
-            ll_yy = 2 * self.Theta + ul_yy
-
-            A = -(self.p_u + self.p_l) * ul_ll_xy
-            B = self.I - (self.p_u * ul_yy + self.p_l * ll_yy)
-            self.Z = B @ self.Z + A
-
-        ul_val = self.UL()
-        ul_x = torch.autograd.grad(ul_val, self.UL.x, create_graph=True)[0]
-        ll_val = self.LL()
-        ll_x = torch.autograd.grad(ll_val, self.LL.x, create_graph=True)[0]
-        self.grad_x = ul_x + self.Z.T @ ll_x
+#             ul_ll_xy = 2 * self.S["lambda_r"] * (self.y @ self.x.T + self.x @ self.y.T) # 混合二阶偏导
+#             ul_yy = 2 * self.S["lambda_r"] * self.x @ self.x.T
+#             ll_yy = 2 * self.Theta + ul_yy
+#
+#             A = (self.p_u + self.p_l) * ul_ll_xy
+#             B = self.I + (self.p_u * ul_yy + self.p_l * ll_yy)
+#             self.Z = B @ self.Z + A
+#
+#         ul_val = self.UL()
+#         ul_x = torch.autograd.grad(ul_val, self.UL.x, create_graph=True)[0]
+#         ll_val = self.LL()
+#         ll_x = torch.autograd.grad(ll_val, self.LL.x, create_graph=True)[0]
+#         self.grad_x = self.Proj(ul_x + self.Z.T @ ll_x, self.x)
 
 
     def outer_loop(self):
