@@ -1,5 +1,5 @@
 # This file aims to collect the auxiliary function of MVHSC.
-
+import math
 import os
 
 os.environ["OMP_NUM_THREADS"] = "1"
@@ -308,7 +308,6 @@ class clustering:
 class iteration:
 
     def __init__(self, EV, IN, S):
-        self.grad_method = "man"
         self.S = S
         self.result = {"ll_nmi": [], "norm_grad_ll": [], "ll_val": [], "ll_acc": [], "ll_ari":[],
                   "ul_nmi": [], "norm_grad_ul": [], "ul_val": [], "ul_acc": [], "ul_ari": [],
@@ -325,10 +324,12 @@ class iteration:
         self.I = torch.eye(self.x.shape[0], dtype=torch.float64)
         self.grad_x = self.O
         self.grad_y = self.O
-        self.alpha = lambda x: 1/(x+1)
-        self.beta = lambda x: 1/(x+1)
+        self.alpha = lambda x: math.exp(-x**2)
+        self.beta = lambda x: math.exp(-x**2)
         self.p_u = 0
         self.p_l = 0
+        self.ul_val = 0
+        self.ll_val = 0
 
     def syn(self, var:Literal["x","y"]):
         with torch.no_grad():
@@ -401,42 +402,50 @@ class iteration:
         # 使用向前传播方法计算超梯度
         self.Z = self.O
         for epoch in range(self.S["max_ll_epochs"]):
-            ll_val = self.LL()
-            ll_y = torch.autograd.grad(ll_val, self.LL.y, create_graph=True)[0]
+            self.ll_val = self.LL()
+            ll_y = torch.autograd.grad(self.ll_val, self.LL.y, retain_graph=True)[0]
 
-            ul_val = self.UL()
-            ul_y = torch.autograd.grad(ul_val, self.UL.y, create_graph=True)[0]
+            self.ul_val = self.UL()
+            ul_y = torch.autograd.grad(self.ul_val, self.UL.y, retain_graph=True)[0]
 
             self.p_u = self.S["mu"] * self.alpha(epoch) * self.S["s_u"]
             self.p_l = (1 - self.S["mu"]) * self.beta(epoch) * self.S["s_l"]
 
             self.grad_y = self.Proj(self.p_u * ul_y + self.p_l * ll_y, self.y)
-            self.y = self.update_value(self.y, self.grad_y, True)
+            self.y = self.update_value(self.y, self.grad_y)
 
             self.syn("y")
-
-            norm_grad_ll = torch.linalg.norm(self.grad_y, ord=2)
-            ll_acc, ll_nmi, ll_ari = self.EV.assess(self.y.detach().numpy())
-            self.EV.record(self.result, "LL", val=ll_val.item(), grad=norm_grad_ll.item(), acc=ll_acc, nmi=ll_nmi, ari=ll_ari)
-
             self.get_hessian()
 
-        ul_val = self.UL()
-        ul_x = torch.autograd.grad(ul_val, self.UL.x)[0]
-        ll_val = self.LL()
-        ll_x = torch.autograd.grad(ll_val, self.LL.x)[0]
+        self.ul_val = self.UL()
+        ul_x = torch.autograd.grad(self.ul_val, self.UL.x)[0]
+        self.ll_val = self.LL()
+        ll_x = torch.autograd.grad(self.ll_val, self.LL.x)[0]
+
         self.grad_x = 0.01 * self.Proj(ul_x + self.Z.T @ ll_x, self.x)
+        norm_grad_ll = torch.linalg.norm(self.grad_y, ord=2)
+        ll_acc, ll_nmi, ll_ari = self.EV.assess(self.y.detach().numpy())
+        self.EV.record(self.result, "LL", val=self.ll_val.item(), grad=norm_grad_ll.item(), acc=ll_acc, nmi=ll_nmi, ari=ll_ari)
 
 
     def outer_loop(self):
         for epoch in range(self.S["max_ul_epochs"]):
-            self.x = self.update_value(self.x, self.grad_x, True)
-            ul_val = self.UL()
+            self.x = self.update_value(self.x, self.grad_x)
+            self.ul_val = self.UL()
             self.syn("x")
 
             ul_acc, ul_nmi, ul_ari = self.EV.assess(self.x.detach().numpy())
             norm_grad_x = torch.linalg.norm(self.grad_x, ord=2)
-            self.EV.record(self.result,"UL", val=ul_val.item(), grad=norm_grad_x.item(), acc=ul_acc, nmi=ul_nmi, ari=ul_ari)
+            self.EV.record(self.result,"UL", val=self.ul_val.item(), grad=norm_grad_x.item(), acc=ul_acc, nmi=ul_nmi, ari=ul_ari)
+
+    def run(self):
+        for epoch in range(self.S["Epochs"]):
+            self.inner_loop()
+            self.outer_loop()
+
+        self.EV.use_result(self.result,'dump',self.S["file_name"])
+        data = self.EV.use_result({}, "load", self.S["file_name"])
+        self.EV.plot_result(data, [], ["grad","val","acc","nmi","ari"],self.S["result_output"], picname=f"Mu{self.S["mu"]}.png")
 
     def update_lambda_r(self):
         if self.S["update_lambda_r"]:
@@ -510,7 +519,7 @@ class evaluation:
         match type:
             case "UL":
                 result["ul_acc"].append(kwargs["acc"])
-                # result["ul_val"].append(kwargs["val"])
+                result["ul_val"].append(kwargs["val"])
                 result["ul_nmi"].append(kwargs["nmi"])
                 result["ul_ari"].append(kwargs["ari"])
                 result["norm_grad_ul"].append(kwargs["grad"])
@@ -630,91 +639,13 @@ class evaluation:
 
         return newL2
 
-def create_instances(S:dict, view2=0, seed_num=42):
-    DI = data_importation(view2=view2, seed=seed_num)
+def create_instances(S:dict):
+    DI = data_importation(view2=S["view2"], seed=S["seed_num"])
     IN = initialization(DI)
     CL = clustering()
     EV = evaluation(DI, CL)
 
-    S0 = {"learning_rate": 0.01, "lambda_r": 1, "epsilon": 0.05, "update_learning_rate": True,
-                "max_ll_epochs": 300, "max_ul_epochs": 300,
-                "update_lambda_r": False, "use_proj": True,
-                "plot_vline": True, "grad_method": "auto"}
-    S = S0 | S
-
     IT = iteration(EV, IN, S)
     return DI, IN, CL, EV, IT
-
-
-class test_part:
-
-    def __init__(self, DI, CL, EV, IN):
-        self.file_name = "output.txt"
-        self.sources = DI.sources
-        self.view_num = DI.view_num
-        self.data = DI.data
-        self.CL = CL
-        self.EV = EV
-        self.IN = IN
-
-    def output_result(self, input, output_method:Literal["file","console"]="console"):
-        match output_method:
-            case "file":
-                with open(self.file_name, 'a') as file:
-                    print(input, file=file)
-            case "console":
-                print(input)
-
-
-    def cluster_and_evaluation(self ,method:Literal["file","console"]="console"):
-        data = self.data
-        sources = self.sources
-        p = data["cluster_num"]
-        match self.view_num:
-            case 1:
-                for view in sources:
-                    labels_pred = self.CL.cluster(data[f'{view}_mtx'], p, method="spectral")
-                    nmi = self.EV.calculate_nmi(data[f"{view}_labels_true"], labels_pred)
-                    self.output_result(f"SC_{view}:{nmi}", method)
-
-                for view in sources:
-                    _, F = self.IN.get_Theta_and_F(data[f'{view}_mtx'], p)
-                    labels_pred = self.CL.cluster(F, p, method="spectral")
-                    nmi = self.EV.calculate_nmi(data[f"{view}_labels_true"], labels_pred)
-                    self.output_result(f"HSC_{view}:{nmi}", method)
-
-                self.output_result("-"*30, method)
-
-            case 2:
-
-                for i, j, k in [[0,1,0],[0,1,1],[0,2,0],[0,2,2],[1,2,1],[1,2,2]]:
-                # for i,j in [[0,1],[0,2],[1,2]]:
-                    labels_pred = self.CL.cluster(data[f"{sources[k]}_mtx_{sources[i]}_{sources[j]}"], p, method="spectral")
-                    nmi = self.EV.calculate_nmi(data[f"labels_true_{sources[i]}_{sources[j]}"], labels_pred)
-                    self.output_result(f"{sources[k]}_SC_{sources[i]}_{sources[j]}:{nmi}", method)
-                    self.output_result("-"*30, method)
-
-                for i, j, k in [[0,1,0],[0,1,1],[0,2,0],[0,2,2],[1,2,1],[1,2,2]]:
-                # for i,j in [[0,1],[0,2],[1,2]]:
-                     _, F = self.IN.get_Theta_and_F(data[f'{sources[k]}_mtx_{sources[i]}_{sources[j]}'], p)
-                     labels_pred = self.CL.cluster(F, p, method="spectral")
-                     nmi = self.EV.calculate_nmi(data[f"labels_true_{sources[i]}_{sources[j]}"], labels_pred)
-                     self.output_result(f"{sources[k]}_HSC_{sources[i]}_{sources[j]}:{nmi}", method)
-                     self.output_result("-"*30, method)
-
-            case 3:
-                for i in range(3):
-                    labels_pred = self.CL.cluster(data[f"{sources[i]}_mtx_3sources"],p)
-                    nmi = self.EV.calculate_nmi(data[f"labels_true_3sources"], labels_pred)
-                    self.output_result(f"{sources[i]}_SC_3sources:{nmi}", method)
-                    self.output_result("-"*30, method)
-
-                for i in range(3):
-                    _, F = self.IN.get_Theta_and_F(data[f'{sources[i]}_mtx_3sources'], p)
-                    labels_pred = self.CL.cluster(F, p, method="spectral")
-                    nmi = self.EV.calculate_nmi(data[f"labels_true_3sources"], labels_pred)
-                    self.output_result(f"{sources[i]}_HSC_3sources:{nmi}", method)
-                    self.output_result("-"*30, method)
-
 
 
