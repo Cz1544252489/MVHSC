@@ -14,7 +14,7 @@ settings = {"learning_rate": 0.01, "lambda_r": 1, "epsilon": 0.05, "update_learn
 DI, IN, CL, EV, IT = create_instances(settings,view2=0, seed_num= 42)
 
 
-for _ in range(100):
+for _ in range(10):
     IT.inner_loop()
     IT.outer_loop()
 
