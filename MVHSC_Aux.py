@@ -330,13 +330,24 @@ class iteration:
         self.p_u = 0
         self.p_l = 0
 
-    @staticmethod
-    def alpha_k(k):
-        return 1/k
+    def syn(self, var:Literal["x","y"]):
+        with torch.no_grad():
+            match var:
+                case "x":
+                    self.LL.x.copy_(self.x)
+                    self.UL.x.copy_(self.x)
+                case "y":
+                    self.LL.y.copy_(self.y)
+                    self.UL.y.copy_(self.y)
 
-    @staticmethod
-    def beta_k(k):
-        return 1/k
+    def get_hessian(self):
+        ul_ll_xy = 2 * self.S["lambda_r"] * (self.y @ self.x.T + self.x @ self.y.T)  # 混合二阶偏导
+        ul_yy = 2 * self.S["lambda_r"] * self.x @ self.x.T
+        ll_yy = 2 * self.Theta + ul_yy
+
+        A = (self.p_u + self.p_l) * ul_ll_xy
+        B = self.I + (self.p_u * ul_yy + self.p_l * ll_yy)
+        self.Z = B @ self.Z + A
 
     class lower_level(nn.Module):
         def __init__(self, x, y, lambda_r, Theta):
@@ -400,41 +411,32 @@ class iteration:
             self.p_l = (1 - self.S["mu"]) * self.beta(epoch) * self.S["s_l"]
 
             self.grad_y = self.Proj(self.p_u * ul_y + self.p_l * ll_y, self.y)
+            self.y = self.update_value(self.y, self.grad_y, True)
 
-            self.y = self.update_value(self.y, self.grad_y)
-            with torch.no_grad():
-                self.LL.y.copy_(self.y)
-                self.UL.y.copy_(self.y)
+            self.syn("y")
 
-            norm_grad_ll =torch.linalg.norm(self.grad_y, ord=2)
+            norm_grad_ll = torch.linalg.norm(self.grad_y, ord=2)
             ll_acc, ll_nmi, ll_ari = self.EV.assess(self.y.detach().numpy())
             self.EV.record(self.result, "LL", val=ll_val.item(), grad=norm_grad_ll.item(), acc=ll_acc, nmi=ll_nmi, ari=ll_ari)
 
-#             ul_ll_xy = 2 * self.S["lambda_r"] * (self.y @ self.x.T + self.x @ self.y.T) # 混合二阶偏导
-#             ul_yy = 2 * self.S["lambda_r"] * self.x @ self.x.T
-#             ll_yy = 2 * self.Theta + ul_yy
-#
-#             A = (self.p_u + self.p_l) * ul_ll_xy
-#             B = self.I + (self.p_u * ul_yy + self.p_l * ll_yy)
-#             self.Z = B @ self.Z + A
-#
-#         ul_val = self.UL()
-#         ul_x = torch.autograd.grad(ul_val, self.UL.x, create_graph=True)[0]
-#         ll_val = self.LL()
-#         ll_x = torch.autograd.grad(ll_val, self.LL.x, create_graph=True)[0]
-#         self.grad_x = self.Proj(ul_x + self.Z.T @ ll_x, self.x)
+            self.get_hessian()
+
+        ul_val = self.UL()
+        ul_x = torch.autograd.grad(ul_val, self.UL.x)[0]
+        ll_val = self.LL()
+        ll_x = torch.autograd.grad(ll_val, self.LL.x)[0]
+        self.grad_x = 0.01 * self.Proj(ul_x + self.Z.T @ ll_x, self.x)
 
 
     def outer_loop(self):
         for epoch in range(self.S["max_ul_epochs"]):
-            self.x = self.update_value(self.x, self.grad_x)
-            with torch.no_grad():
-                self.LL.x.copy_(self.x)
-                self.LL.y.copy_(self.y)
+            self.x = self.update_value(self.x, self.grad_x, True)
+            ul_val = self.UL()
+            self.syn("x")
 
             ul_acc, ul_nmi, ul_ari = self.EV.assess(self.x.detach().numpy())
             norm_grad_x = torch.linalg.norm(self.grad_x, ord=2)
-            self.EV.record(self.result,"UL", grad=norm_grad_x.item(), acc=ul_acc, nmi=ul_nmi, ari=ul_ari)
+            self.EV.record(self.result,"UL", val=ul_val.item(), grad=norm_grad_x.item(), acc=ul_acc, nmi=ul_nmi, ari=ul_ari)
 
     def update_lambda_r(self):
         if self.S["update_lambda_r"]:
@@ -521,7 +523,7 @@ class evaluation:
                 result["norm_grad_ll"].append(kwargs["grad"])
         return result
 
-    def plot_result(self,data, list, flag):
+    def plot_result(self,data, list, flag, method:["save","show"],*,picname):
         result = self.output_type(data, flag)
         num_plots = len(result.keys())  # 获取总图数
         cols = 2  # 每行2张图
@@ -546,7 +548,11 @@ class evaluation:
             fig.delaxes(axes[j])
 
         plt.tight_layout()
-        plt.show()
+        match method:
+            case "show":
+                plt.show()
+            case "save":
+                plt.savefig(picname, format='png', dpi=300)
 
     @staticmethod
     def use_result(data, method: Literal["dump","load"], file_name):
