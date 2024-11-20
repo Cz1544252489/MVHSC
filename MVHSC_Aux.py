@@ -313,8 +313,9 @@ class iteration:
     def __init__(self, EV, IN, S):
         self.S = S
         self.result = {"ll_nmi": [], "norm_grad_ll": [], "ll_val": [], "ll_acc": [], "ll_ari":[],
-                  "ul_nmi": [], "norm_grad_ul": [], "ul_val": [], "ul_acc": [], "ul_ari": [],
-                  "best_ll_nmi": 0, "best_ul_nmi": 0}
+                    "ul_nmi": [], "norm_grad_ul": [], "ul_val": [], "ul_acc": [], "ul_ari": [],
+                    "best_ll_nmi": 0, "best_ll_acc": 0, "best_ll_ari": 0,
+                    "best_ul_nmi": 0, "best_ul_acc": 0, "best_ul_ari": 0 }
         self.update_learning_rate= True
         self.EV = EV
         self.x = IN.x
@@ -391,14 +392,23 @@ class iteration:
             x, _ = torch.linalg.qr(x, mode="reduced")
         return x
 
-    def get_grad_y_ll_man(self, x, y):
-        Theta_LL = self.Theta + self.S["lambda_r"] * x @ x.T
-        return  2 * Theta_LL
+    def record_best(self, type:Literal["UL","LL"], acc, nmi, ari):
+        match type:
+            case "LL":
+                if acc >= self.result["best_ll_acc"]:
+                    self.result["best_ll_acc"] = acc
+                if nmi >= self.result["best_ll_nmi"]:
+                    self.result["best_ll_nmi"] = nmi
+                if ari >= self.result["best_ll_ari"]:
+                    self.result["best_ll_ari"] = ari
 
-    def get_grad_y_ul_man(self, x, y):
-        # 需要修改
-        Theta_UL = self.Theta + self.S["lambda_r"] * x @ x.T
-        return  2 * Theta_UL
+            case "UL":
+                if acc >= self.result["best_ul_acc"]:
+                    self.result["best_ul_acc"] = acc
+                if nmi >= self.result["best_ul_nmi"]:
+                    self.result["best_ul_nmi"] = nmi
+                if ari >= self.result["best_ul_ari"]:
+                    self.result["best_ul_ari"] = ari
 
     @staticmethod
     def Proj(vector, y):
@@ -433,6 +443,7 @@ class iteration:
         self.grad_x = self.S["lambda_x"] * self.Proj(ul_x + self.Z.T @ ll_x, self.x)
         norm_grad_ll = torch.linalg.norm(self.grad_y, ord=2)
         ll_acc, ll_nmi, ll_ari = self.EV.assess(self.y.detach().numpy())
+        self.record_best("LL", ll_acc, ll_nmi, ll_ari)
         self.EV.record(self.result, "LL", val=self.ll_val.item(), grad=norm_grad_ll.item(), acc=ll_acc, nmi=ll_nmi, ari=ll_ari)
 
 
@@ -441,10 +452,10 @@ class iteration:
             self.x = self.update_value(self.x, self.grad_x, self.S["orth_x"])
             self.ul_val = self.UL()
             self.syn("x")
-
             self.update_lambda_r()
 
             ul_acc, ul_nmi, ul_ari = self.EV.assess(self.x.detach().numpy())
+            self.record_best("UL", ul_acc, ul_nmi, ul_ari)
             norm_grad_x = torch.linalg.norm(self.grad_x, ord=2)
             self.EV.record(self.result,"UL", val=self.ul_val.item(), grad=norm_grad_x.item(), acc=ul_acc, nmi=ul_nmi, ari=ul_ari)
 
@@ -455,7 +466,8 @@ class iteration:
 
         self.EV.use_result(self.result,'dump',self.S["file_name"])
         data = self.EV.use_result({}, "load", self.S["file_name"])
-        self.EV.plot_result(data, [], ["grad","val","acc","nmi","ari"],self.S["result_output"], picname=f"Mu{self.S["mu"]}.png")
+        if self.S["result_output"] == "None":
+            self.EV.plot_result(data, [], ["grad","val","acc","nmi","ari"],self.S["result_output"], picname=self.S["figure_name"])
 
     def update_lambda_r(self):
         if self.S["update_lambda_r"]:
@@ -652,25 +664,49 @@ class evaluation:
 def parser():
     parser = argparse.ArgumentParser(description="None")
 
-    parser.add_argument('--file_name', type=str, default="result.json")
-    parser.add_argument('-v','--view2', type=int, choices=[0,2,4], default=2)
-    parser.add_argument('--seed_num', type=int, default=42)
-    parser.add_argument('-L','--max_ll_epochs', type= int, default=10, help="下层优化函数内部迭代次数")
-    parser.add_argument('-U','--max_ul_epochs', type=int, default=1, help="上层优化函数内部迭代次数")
-    parser.add_argument('-E','--Epochs', type=int, default=10, help="总迭代次数")
-    parser.add_argument('--s_u', type=float, default=0.5, help="聚合梯度中的上层梯度的系数")
-    parser.add_argument('--s_l', type=float, default=0.5, help="聚合梯度中的下层梯度的系数")
-    parser.add_argument('--mu', type=float, default=0.5, help="聚合梯度中的分配系数，范围[0-1]， 取0时为下层梯度，1为上层梯度")
-    parser.add_argument('--lambda_x', type=float, default=1, help="超梯度的系数")
-    parser.add_argument('--learning_rate', type=float, default=0.01)
+    parser.add_argument('--file_name', type=str, default="result.json",
+                        help = "输出IT.result中的结果到该文件中，使用json格式")
+    parser.add_argument('-v','--view2', type=int, choices=[0,2,4], default=2,
+                        help = "双视角时的数据选择，有 0 2 4 共三种")
+    parser.add_argument('--seed_num', type=int, default=42,
+                        help = "随机种子数，仅数据生成时超图的超边权重处随机。")
+    parser.add_argument('-L','--max_ll_epochs', type= int, default=10,
+                        help = "下层优化函数内部迭代次数")
+    parser.add_argument('-U','--max_ul_epochs', type=int, default=1,
+                        help = "上层优化函数内部迭代次数")
+    parser.add_argument('-E','--Epochs', type=int, default=10,
+                        help = "总迭代次数")
+    parser.add_argument('--s_u', type=float, default=0.5,
+                        help = "聚合梯度中的上层梯度的系数")
+    parser.add_argument('--s_l', type=float, default=0.5, 
+                        help = "聚合梯度中的下层梯度的系数")
+    parser.add_argument('--mu', type=float, default=0.5, 
+                        help = "聚合梯度中的分配系数，范围[0-1]， 取0时为下层梯度，1为上层梯度")
+    parser.add_argument('--lambda_x', type=float, default=1, 
+                        help = "超梯度的系数")
+    parser.add_argument('--update_learning_rate', type=bool, default=False,
+                        help = "是否更新学习率，默认不更新。")
+    parser.add_argument('--learning_rate', type=float, default=0.01,
+                        help = "更新值的时候使用，在x和y的更新时均使用。")
+    parser.add_argument('--orth_y', type=bool, default=True,
+                        help = "内循环结束是是否正交化y，使用修正的QR分解。")
+    parser.add_argument('--orth_x', type=bool, default=True,
+                        help = "内循环结束是是否正交化x，使用修正的QR分解。")
+    parser.add_argument('--clip_method', type=str,choices=["gaussian","com"], default="gaussian",
+                        help = "减小{aplha}和{beta}的方法：'gaussian'是高斯函数，'com'是常规反比例函数。")
 
-    parser.add_argument('--update_lambda_r', type=bool, default=True, help="是否更新组合参数")
-    parser.add_argument('--lambda_r', type=float, default=1.0, help="多视角超图谱聚类的组合参数")
-    parser.add_argument('--epsilon', type=float, default=0.01, help="多视角超图谱聚类的阈值参数")
-    parser.add_argument('--result_output', type=str,choices=["show","save"], default="show")
-    parser.add_argument('--orth_y', type=bool, default=True)
-    parser.add_argument('--orth_x', type=bool, default=True)
-    parser.add_argument('--clip_method', type=str,choices=["gaussian","com"], default="gaussian")
+    parser.add_argument('--update_lambda_r', type=bool, default=True,
+                        help = "是否更新组合参数")
+    parser.add_argument('--lambda_r', type=float, default=1.0, 
+                        help = "多视角超图谱聚类的组合参数")
+    parser.add_argument('--epsilon', type=float, default=0.01,
+                        help = "多视角超图谱聚类的阈值参数")
+
+    parser.add_argument('--result_output', type=str,choices=["show","save","None"], default="show",
+                        help = "图片展示的方式，'show' 为输出到窗口，'save'为保存到文件, 'None'为不输出")
+    parser.add_argument('--figure_name', type=str, default="figure1.png",
+                        help = "保存图片为文件的时候，图片的文件名")
+
 
     S0 = parser.parse_args()
     S = vars(S0)
