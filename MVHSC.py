@@ -5,5 +5,10 @@ def main():
     IT = create_instances(S)
     IT.run()
 
+    return IT
+
 if __name__ == "__main__":
-    main()
+    IT = main()
+    print(IT.S["lambda_r"])
+
+    print("aa")

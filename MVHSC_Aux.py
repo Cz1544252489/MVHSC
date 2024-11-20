@@ -3,6 +3,8 @@ import math
 import os
 
 import argparse
+from random import choices
+
 os.environ["OMP_NUM_THREADS"] = "1"
 
 from scipy.optimize import linear_sum_assignment
@@ -325,8 +327,13 @@ class iteration:
         self.I = torch.eye(self.x.shape[0], dtype=torch.float64)
         self.grad_x = self.O
         self.grad_y = self.O
-        self.alpha = lambda x: math.exp(-x**2)
-        self.beta = lambda x: math.exp(-x**2)
+        match self.S["clip_method"]:
+            case "gaussian":
+                self.alpha = lambda x: math.exp(-x**2)
+                self.beta = lambda x: math.exp(-x**2)
+            case "com":
+                self.alpha = lambda x: 1/(x+1)
+                self.beta = lambda x: 1/(x+1)
         self.p_u = 0
         self.p_l = 0
         self.ul_val = 0
@@ -413,7 +420,7 @@ class iteration:
             self.p_l = (1 - self.S["mu"]) * self.beta(epoch) * self.S["s_l"]
 
             self.grad_y = self.Proj(self.p_u * ul_y + self.p_l * ll_y, self.y)
-            self.y = self.update_value(self.y, self.grad_y)
+            self.y = self.update_value(self.y, self.grad_y, self.S["orth_y"])
 
             self.syn("y")
             self.get_hessian()
@@ -423,7 +430,7 @@ class iteration:
         self.ll_val = self.LL()
         ll_x = torch.autograd.grad(self.ll_val, self.LL.x)[0]
 
-        self.grad_x = 0.01 * self.Proj(ul_x + self.Z.T @ ll_x, self.x)
+        self.grad_x = self.S["lambda_x"] * self.Proj(ul_x + self.Z.T @ ll_x, self.x)
         norm_grad_ll = torch.linalg.norm(self.grad_y, ord=2)
         ll_acc, ll_nmi, ll_ari = self.EV.assess(self.y.detach().numpy())
         self.EV.record(self.result, "LL", val=self.ll_val.item(), grad=norm_grad_ll.item(), acc=ll_acc, nmi=ll_nmi, ari=ll_ari)
@@ -431,9 +438,11 @@ class iteration:
 
     def outer_loop(self):
         for epoch in range(self.S["max_ul_epochs"]):
-            self.x = self.update_value(self.x, self.grad_x)
+            self.x = self.update_value(self.x, self.grad_x, self.S["orth_x"])
             self.ul_val = self.UL()
             self.syn("x")
+
+            self.update_lambda_r()
 
             ul_acc, ul_nmi, ul_ari = self.EV.assess(self.x.detach().numpy())
             norm_grad_x = torch.linalg.norm(self.grad_x, ord=2)
@@ -450,8 +459,8 @@ class iteration:
 
     def update_lambda_r(self):
         if self.S["update_lambda_r"]:
-            val = torch.trace(self.x.T @ (torch.eye(self.x.shape[0]) - self.y @ self.y.T) @ self.x)
-            print(val.item())
+            val = torch.trace(self.x.T @ (torch.eye(self.x.shape[0]) - self.x @ self.x.T) @ self.x)
+            # print(val.item())
             if val <= self.S["epsilon"]:
                 self.S["lambda_r"]= self.S["lambda_r"]/2
                 return True
@@ -644,19 +653,24 @@ def parser():
     parser = argparse.ArgumentParser(description="None")
 
     parser.add_argument('--file_name', type=str, default="result.json")
-    parser.add_argument('--view2', type=Literal[0,2,4], default=2)
+    parser.add_argument('-v','--view2', type=int, choices=[0,2,4], default=2)
     parser.add_argument('--seed_num', type=int, default=42)
     parser.add_argument('-L','--max_ll_epochs', type= int, default=10, help="下层优化函数内部迭代次数")
     parser.add_argument('-U','--max_ul_epochs', type=int, default=1, help="上层优化函数内部迭代次数")
     parser.add_argument('-E','--Epochs', type=int, default=10, help="总迭代次数")
-    parser.add_argument('--s_u', type=float, default=0.5)
-    parser.add_argument('--s_l', type=float, default=0.5)
+    parser.add_argument('--s_u', type=float, default=0.5, help="聚合梯度中的上层梯度的系数")
+    parser.add_argument('--s_l', type=float, default=0.5, help="聚合梯度中的下层梯度的系数")
+    parser.add_argument('--mu', type=float, default=0.5, help="聚合梯度中的分配系数，范围[0-1]， 取0时为下层梯度，1为上层梯度")
+    parser.add_argument('--lambda_x', type=float, default=1, help="超梯度的系数")
     parser.add_argument('--learning_rate', type=float, default=0.01)
-    parser.add_argument('--lambda_r', type=float, default=1.0)
-    parser.add_argument('--mu', type=float, default=0.5)
-    parser.add_argument('--epsilon', type=float, default=0.01)
-    parser.add_argument('--update_lambda_r', type=bool, default=False)
-    parser.add_argument('--result_output', type=str, default="show")
+
+    parser.add_argument('--update_lambda_r', type=bool, default=True, help="是否更新组合参数")
+    parser.add_argument('--lambda_r', type=float, default=1.0, help="多视角超图谱聚类的组合参数")
+    parser.add_argument('--epsilon', type=float, default=0.01, help="多视角超图谱聚类的阈值参数")
+    parser.add_argument('--result_output', type=str,choices=["show","save"], default="show")
+    parser.add_argument('--orth_y', type=bool, default=True)
+    parser.add_argument('--orth_x', type=bool, default=True)
+    parser.add_argument('--clip_method', type=str,choices=["gaussian","com"], default="gaussian")
 
     S0 = parser.parse_args()
     S = vars(S0)
