@@ -22,7 +22,7 @@ import torch.nn as nn
 from sklearn.decomposition import PCA
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.cluster import KMeans, SpectralClustering
-from sklearn.metrics import normalized_mutual_info_score, adjusted_rand_score
+from sklearn.metrics import normalized_mutual_info_score, adjusted_rand_score, f1_score
 from sklearn.preprocessing import normalize
 
 # function part
@@ -312,10 +312,10 @@ class iteration:
 
     def __init__(self, EV, IN, S):
         self.S = S
-        self.result = {"ll_nmi": [], "norm_grad_ll": [], "ll_val": [], "ll_acc": [], "ll_ari":[],
-                    "ul_nmi": [], "norm_grad_ul": [], "ul_val": [], "ul_acc": [], "ul_ari": [],
-                    "best_ll_nmi": 0, "best_ll_acc": 0, "best_ll_ari": 0,
-                    "best_ul_nmi": 0, "best_ul_acc": 0, "best_ul_ari": 0 }
+        self.result = {"ll_nmi": [], "norm_grad_ll": [], "ll_val": [], "ll_acc": [], "ll_ari":[], "ll_f1": [],
+                    "ul_nmi": [], "norm_grad_ul": [], "ul_val": [], "ul_acc": [], "ul_ari": [], "ul_f1": [],
+                    "best_ll_nmi": 0, "best_ll_acc": 0, "best_ll_ari": 0, "best_ll_f1": 0,
+                    "best_ul_nmi": 0, "best_ul_acc": 0, "best_ul_ari": 0, "best_ul_f1": 0 }
         self.update_learning_rate= True
         self.EV = EV
         self.x = IN.x
@@ -392,7 +392,7 @@ class iteration:
             x, _ = torch.linalg.qr(x, mode="reduced")
         return x
 
-    def record_best(self, type:Literal["UL","LL"], acc, nmi, ari):
+    def record_best(self, type:Literal["UL","LL"], acc, nmi, ari, f1):
         match type:
             case "LL":
                 if acc >= self.result["best_ll_acc"]:
@@ -401,6 +401,8 @@ class iteration:
                     self.result["best_ll_nmi"] = nmi
                 if ari >= self.result["best_ll_ari"]:
                     self.result["best_ll_ari"] = ari
+                if f1 >= self.result["best_ll_f1"]:
+                    self.result["best_ll_f1"] = f1
 
             case "UL":
                 if acc >= self.result["best_ul_acc"]:
@@ -409,6 +411,8 @@ class iteration:
                     self.result["best_ul_nmi"] = nmi
                 if ari >= self.result["best_ul_ari"]:
                     self.result["best_ul_ari"] = ari
+                if f1 >= self.result["best_ul_f1"]:
+                    self.result["best_ul_f1"] = f1
 
     @staticmethod
     def Proj(vector, y):
@@ -442,9 +446,10 @@ class iteration:
 
         self.grad_x = self.S["lambda_x"] * self.Proj(ul_x + self.Z.T @ ll_x, self.x)
         norm_grad_ll = torch.linalg.norm(self.grad_y, ord=2)
-        ll_acc, ll_nmi, ll_ari = self.EV.assess(self.y.detach().numpy())
-        self.record_best("LL", ll_acc, ll_nmi, ll_ari)
-        self.EV.record(self.result, "LL", val=self.ll_val.item(), grad=norm_grad_ll.item(), acc=ll_acc, nmi=ll_nmi, ari=ll_ari)
+        ll_acc, ll_nmi, ll_ari, ll_f1 = self.EV.assess(self.y.detach().numpy())
+        self.record_best("LL", ll_acc, ll_nmi, ll_ari, ll_f1)
+        self.EV.record(self.result, "LL", val=self.ll_val.item(), grad=norm_grad_ll.item(),
+                       acc=ll_acc, nmi=ll_nmi, ari=ll_ari, f1=ll_f1)
 
 
     def outer_loop(self):
@@ -454,10 +459,11 @@ class iteration:
             self.syn("x")
             self.update_lambda_r()
 
-            ul_acc, ul_nmi, ul_ari = self.EV.assess(self.x.detach().numpy())
-            self.record_best("UL", ul_acc, ul_nmi, ul_ari)
+            ul_acc, ul_nmi, ul_ari, ul_f1 = self.EV.assess(self.x.detach().numpy())
+            self.record_best("UL", ul_acc, ul_nmi, ul_ari, ul_f1)
             norm_grad_x = torch.linalg.norm(self.grad_x, ord=2)
-            self.EV.record(self.result,"UL", val=self.ul_val.item(), grad=norm_grad_x.item(), acc=ul_acc, nmi=ul_nmi, ari=ul_ari)
+            self.EV.record(self.result,"UL", val=self.ul_val.item(), grad=norm_grad_x.item(),
+                           acc=ul_acc, nmi=ul_nmi, ari=ul_ari, f1=ul_f1)
 
     def run(self):
         for epoch in range(self.S["Epochs"]):
@@ -466,8 +472,8 @@ class iteration:
 
         self.EV.use_result(self.result,'dump',self.S["file_name"])
         data = self.EV.use_result({}, "load", self.S["file_name"])
-        if self.S["result_output"] == "None":
-            self.EV.plot_result(data, [], ["grad","val","acc","nmi","ari"],self.S["result_output"], picname=self.S["figure_name"])
+        if self.S["result_output"] != "None":
+            self.EV.plot_result(data, self.S["plot_content"],self.S["result_output"], picname=self.S["figure_name"])
 
     def update_lambda_r(self):
         if self.S["update_lambda_r"]:
@@ -504,7 +510,8 @@ class evaluation:
         nmi = self.calculate_nmi(labels_true, labels_pred)
         ari = self.calculate_ari(labels_true, labels_pred)
         acc = self.calculate_acc(labels_true, labels_pred)
-        return acc, nmi, ari
+        f1 = self.calculate_acc(labels_true, labels_pred)
+        return acc, nmi, ari, f1
 
     def replace(self, labels):
         replaced_list = [self.mapping[item] for item in labels]
@@ -523,6 +530,11 @@ class evaluation:
         reordered_labels = self.best_map(labels_true, labels_pred)
         ratio = np.sum(labels_true == reordered_labels)/len(labels_true)
         return ratio
+
+    @staticmethod
+    def calculate_f1_score(labels_true, labels_pred):
+        f1 = f1_score(labels_true, labels_pred)
+        return f1
 
     @staticmethod
     def judge_orth(F):
@@ -544,6 +556,7 @@ class evaluation:
                 result["ul_val"].append(kwargs["val"])
                 result["ul_nmi"].append(kwargs["nmi"])
                 result["ul_ari"].append(kwargs["ari"])
+                result["ul_f1"].append(kwargs["f1"])
                 result["norm_grad_ul"].append(kwargs["grad"])
 
             case "LL":
@@ -551,10 +564,11 @@ class evaluation:
                 result["ll_val"].append(kwargs["val"])
                 result["ll_nmi"].append(kwargs["nmi"])
                 result["ll_ari"].append(kwargs["ari"])
+                result["ll_f1"].append(kwargs["f1"])
                 result["norm_grad_ll"].append(kwargs["grad"])
         return result
 
-    def plot_result(self,data, list, flag, method:["save","show"],*,picname):
+    def plot_result(self,data, flag, method:["save","show"],*,picname):
         result = self.output_type(data, flag)
         num_plots = len(result.keys())  # 获取总图数
         cols = 2  # 每行2张图
@@ -566,9 +580,6 @@ class evaluation:
         for i, key in enumerate(result.keys()):
             ax = axes[i]
             ax.plot(result[f"{key}"], marker='o', linestyle='-')
-            if len(list)>0:
-                for x in list:
-                    ax.axvline(x=x, color="r", linestyle='--', linewidth=1)
             ax.set_title(key)
             ax.set_xlabel("epoch")
             ax.set_ylabel("Value")
@@ -600,6 +611,12 @@ class evaluation:
     @staticmethod
     def output_type(result, flag):
         output = {}
+        if "val" in flag:
+            output["ll_val"] =result["ll_val"]
+            output["ul_val"] =result["ul_val"]
+        if "grad" in flag:
+            output["norm_grad_ll"] =  result["norm_grad_ll"]
+            output["norm_grad_ul"] = result["norm_grad_ul"]
         if "nmi" in flag :
             output["ll_nmi"] = result["ll_nmi"]
             output["ul_nmi"] = result["ul_nmi"]
@@ -609,12 +626,9 @@ class evaluation:
         if "ari" in flag :
             output["ll_ari"] = result["ll_ari"]
             output["ul_ari"] = result["ul_ari"]
-        if "val" in flag:
-            output["ll_val"] =result["ll_val"]
-            output["ul_val"] =result["ul_val"]
-        if "grad" in flag:
-            output["norm_grad_ll"] =  result["norm_grad_ll"]
-            output["norm_grad_ul"] = result["norm_grad_ul"]
+        if "f1" in flag:
+            output["ll_f1"] =result["ll_f1"]
+            output["ul_f1"] =result["ul_f1"]
 
         return output
 
@@ -704,6 +718,8 @@ def parser():
 
     parser.add_argument('--result_output', type=str,choices=["show","save","None"], default="show",
                         help = "图片展示的方式，'show' 为输出到窗口，'save'为保存到文件, 'None'为不输出")
+    parser.add_argument('--plot_content',type=str, nargs='+', default=["val", "acc", "nmi", "f1"],
+                        help="一个列表，包含以下字符串的任意多个, 'grad','val','acc','nmi','ari','f1'")
     parser.add_argument('--figure_name', type=str, default="figure1.png",
                         help = "保存图片为文件的时候，图片的文件名")
 
