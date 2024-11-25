@@ -1,15 +1,16 @@
 # This file aims to collect the auxiliary function of MVHSC.
-import math
 import os
+import platform
 
 import argparse
 from random import choices
-
-os.environ["OMP_NUM_THREADS"] = "1"
+import time
+# os.environ["OMP_NUM_THREADS"] = "1"
 
 from scipy.optimize import linear_sum_assignment
 from typing import Literal
 import pandas as pd
+import math
 import os
 import json
 from scipy.sparse.linalg import eigsh
@@ -30,8 +31,12 @@ from sklearn.preprocessing import normalize
 # data importation
 
 class data_importation:
-    def __init__(self, view_num:Literal[1,2,3]=2, view2:Literal[0,2,4] = 0, seed:int=44):
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    def __init__(self, view_num:Literal[1,2,3]=2, view2:Literal[0,2,4] = 0, seed:int=44, device_set:bool=True):
+        device = torch.device(
+            "mps" if device_set and platform.system() == "Darwin" and torch.backends.mps.is_available()
+            else "cuda" if device_set and torch.cuda.is_available()
+            else "cpu"
+        )
         self.view_num = view_num
         self.view2 = view2
         self.device = device
@@ -314,8 +319,11 @@ class iteration:
         self.S = S
         self.result = {"ll_nmi": [], "norm_grad_ll": [], "ll_val": [], "ll_acc": [], "ll_ari":[], "ll_f1": [],
                     "ul_nmi": [], "norm_grad_ul": [], "ul_val": [], "ul_acc": [], "ul_ari": [], "ul_f1": [],
-                    "best_ll_nmi": 0, "best_ll_acc": 0, "best_ll_ari": 0, "best_ll_f1": 0,
-                    "best_ul_nmi": 0, "best_ul_acc": 0, "best_ul_ari": 0, "best_ul_f1": 0 }
+                    "best_ll_nmi": (0,0), "best_ll_acc": (0,0), "best_ll_ari": (0,0), "best_ll_f1": (0,0),
+                    "best_ul_nmi": (0,0), "best_ul_acc": (0,0), "best_ul_ari": (0,0), "best_ul_f1": (0,0),
+                    "time_elapsed": []
+                    }
+
         self.update_learning_rate= True
         self.EV = EV
         self.x = IN.x
@@ -392,27 +400,13 @@ class iteration:
             x, _ = torch.linalg.qr(x, mode="reduced")
         return x
 
-    def record_best(self, type:Literal["UL","LL"], acc, nmi, ari, f1):
-        match type:
-            case "LL":
-                if acc >= self.result["best_ll_acc"]:
-                    self.result["best_ll_acc"] = acc
-                if nmi >= self.result["best_ll_nmi"]:
-                    self.result["best_ll_nmi"] = nmi
-                if ari >= self.result["best_ll_ari"]:
-                    self.result["best_ll_ari"] = ari
-                if f1 >= self.result["best_ll_f1"]:
-                    self.result["best_ll_f1"] = f1
-
-            case "UL":
-                if acc >= self.result["best_ul_acc"]:
-                    self.result["best_ul_acc"] = acc
-                if nmi >= self.result["best_ul_nmi"]:
-                    self.result["best_ul_nmi"] = nmi
-                if ari >= self.result["best_ul_ari"]:
-                    self.result["best_ul_ari"] = ari
-                if f1 >= self.result["best_ul_f1"]:
-                    self.result["best_ul_f1"] = f1
+    def record_best(self):
+        for level in ["ll","ul"]:
+            for type in ["acc", "nmi", "ari", "f1"]:
+                data = self.result[f"{level}_{type}"]
+                max_val = max(data)
+                max_index =  data.index(max_val)
+                self.result[f"best_{level}_{type}"] = (max_index,max_val)
 
     @staticmethod
     def Proj(vector, y):
@@ -447,7 +441,6 @@ class iteration:
         self.grad_x = self.S["lambda_x"] * self.Proj(ul_x + self.Z.T @ ll_x, self.x)
         norm_grad_ll = torch.linalg.norm(self.grad_y, ord=2)
         ll_acc, ll_nmi, ll_ari, ll_f1 = self.EV.assess(self.y.detach().numpy())
-        self.record_best("LL", ll_acc, ll_nmi, ll_ari, ll_f1)
         self.EV.record(self.result, "LL", val=self.ll_val.item(), grad=norm_grad_ll.item(),
                        acc=ll_acc, nmi=ll_nmi, ari=ll_ari, f1=ll_f1)
 
@@ -460,20 +453,25 @@ class iteration:
             self.update_lambda_r()
 
             ul_acc, ul_nmi, ul_ari, ul_f1 = self.EV.assess(self.x.detach().numpy())
-            self.record_best("UL", ul_acc, ul_nmi, ul_ari, ul_f1)
             norm_grad_x = torch.linalg.norm(self.grad_x, ord=2)
             self.EV.record(self.result,"UL", val=self.ul_val.item(), grad=norm_grad_x.item(),
                            acc=ul_acc, nmi=ul_nmi, ari=ul_ari, f1=ul_f1)
 
     def run(self):
+        start_time = time.time()
         for epoch in range(self.S["Epochs"]):
             self.inner_loop()
             self.outer_loop()
+            self.result["time_elapsed"].append(time.time() - start_time)
 
+        self.record_best()
         self.EV.use_result(self.result,'dump',self.S["file_name"])
         data = self.EV.use_result({}, "load", self.S["file_name"])
         if self.S["result_output"] != "None":
             self.EV.plot_result(data, self.S["plot_content"],self.S["result_output"], picname=self.S["figure_name"])
+        print(f"ul_nmi:{self.result['best_ul_nmi']}, time: {self.result['time_elapsed'][self.result['best_ul_nmi'][0]]}\n"
+          f" ul_acc: {self.result['best_ul_acc']}, time: {self.result['time_elapsed'][self.result['best_ul_acc'][0]]}\n"
+              f"all iteration time: {self.result['time_elapsed'][-1]}")
 
     def update_lambda_r(self):
         if self.S["update_lambda_r"]:
@@ -678,6 +676,8 @@ class evaluation:
 def parser():
     parser = argparse.ArgumentParser(description="None")
 
+    parser.add_argument('--use_gpu_or_not', type=bool, default=True,
+                        help = "True 默认使用gpu, cuda或者mps，False 直接使用cpu")
     parser.add_argument('--file_name', type=str, default="result.json",
                         help = "输出IT.result中的结果到该文件中，使用json格式")
     parser.add_argument('-v','--view2', type=int, choices=[0,2,4], default=2,
@@ -713,7 +713,7 @@ def parser():
                         help = "是否更新组合参数")
     parser.add_argument('--lambda_r', type=float, default=1.0, 
                         help = "多视角超图谱聚类的组合参数")
-    parser.add_argument('--epsilon', type=float, default=0.01,
+    parser.add_argument('--epsilon', type=float, default=1E-5,
                         help = "多视角超图谱聚类的阈值参数")
 
     parser.add_argument('--result_output', type=str,choices=["show","save","None"], default="show",
@@ -729,7 +729,7 @@ def parser():
     return S
 
 def create_instances(S:dict):
-    DI = data_importation(view2=S["view2"], seed=S["seed_num"])
+    DI = data_importation(view2=S["view2"], seed=S["seed_num"], device_set=S["use_gpu_or_not"])
     IN = initialization(DI)
     CL = clustering()
     EV = evaluation(DI, CL)

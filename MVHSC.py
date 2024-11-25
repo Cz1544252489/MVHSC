@@ -10,5 +10,4 @@ def main():
 if __name__ == "__main__":
     IT = main()
     print(IT.S["lambda_r"])
-
     print("aa")
