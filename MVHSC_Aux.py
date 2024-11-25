@@ -5,6 +5,7 @@ import platform
 import argparse
 from random import choices
 import time
+from datetime import datetime
 # os.environ["OMP_NUM_THREADS"] = "1"
 
 from scipy.optimize import linear_sum_assignment
@@ -31,17 +32,18 @@ from sklearn.preprocessing import normalize
 # data importation
 
 class data_importation:
-    def __init__(self, view_num:Literal[1,2,3]=2, view2:Literal[0,2,4] = 0, seed:int=44, device_set:bool=True):
+    def __init__(self, S):
         device = torch.device(
-            "mps" if device_set and platform.system() == "Darwin" and torch.backends.mps.is_available()
-            else "cuda" if device_set and torch.cuda.is_available()
+            "mps" if S["device_set"] and platform.system() == "Darwin" and torch.backends.mps.is_available()
+            else "cuda" if S["device_set"] and torch.cuda.is_available()
             else "cpu"
         )
-        self.view_num = view_num
-        self.view2 = view2
+        self.S = S
+        self.view_num = S["view_num"]
+        self.view2 = S["view2"]
         self.device = device
         self.cluster_num = 6
-        self.root_path = "/Users/cz/Documents/ML_datasets/3sources"
+        self.root_path = S["root_path"]
         self.sources = ['bbc', 'guardian', 'reuters']
         self.file_types = ['mtx', 'terms', 'docs']
         self.mapping = {
@@ -62,7 +64,7 @@ class data_importation:
         ]
         self.data0 = self.get_data0()
         self.data = self.get_data()
-        np.random.seed(seed)
+        np.random.seed(S["seed_num"])
 
     @staticmethod
     def normalize_data(X : csr_matrix):
@@ -195,13 +197,8 @@ class initialization:
         self.view2 = DI.view2
         self.data = DI.data
         self.device = DI.device
+        self.S = DI.S
         self.Theta, self.x, self.y = self.initial(self.data["view_num"])
-
-    @staticmethod
-    def row_norm(X):
-        row_norms = np.linalg.norm(X, axis = 1)
-        X_normalized = X / row_norms
-        return X_normalized
 
     @staticmethod
     def get_similarity_matrix(X):
@@ -276,8 +273,22 @@ class initialization:
 
         return Theta, F
 
+class evaluation:
 
-class clustering:
+    def __init__(self, DI):
+        self.data = DI.data
+        self.mapping1 = DI.mapping1
+        self.view2 = DI.view2
+        self.S = DI.S
+        mapping = {
+            "business": 1,
+            "entertainment": 2,
+            "health": 3,
+            "politics": 4,
+            "sport": 5,
+            "tech": 0
+        }
+        self.mapping = mapping
 
     @staticmethod
     def show_result(X, labels):
@@ -297,7 +308,7 @@ class clustering:
         plt.figure(figsize=(8, 6))
         self.show_result(X, labels)
 
-    def cluster(self, F, num_type, method:Literal["normal","spectral"] ="normal", show=False):
+    def cluster(self, F, num_type, method:["normal","spectral"], show=False):
         kmeans = KMeans(n_clusters=num_type, random_state=0)
         spectral = SpectralClustering(n_clusters=num_type, affinity='nearest_neighbors',
                                       assign_labels='kmeans', random_state=42)
@@ -313,16 +324,195 @@ class clustering:
 
         return labels
 
+    def assess(self, data1):
+        i,j = self.mapping1[self.view2][0:2]
+        sources = self.data["sources"]
+        labels_pred = self.cluster(data1, self.data["cluster_num"], self.S["cluster_method"])
+        labels_true = self.data[f"labels_true_{sources[i]}_{sources[j]}"]
+        nmi = self.calculate_nmi(labels_true, labels_pred)
+        ari = self.calculate_ari(labels_true, labels_pred)
+        acc = self.calculate_acc(labels_true, labels_pred)
+        f1 = self.calculate_acc(labels_true, labels_pred)
+        return acc, nmi, ari, f1
+
+    def replace(self, labels):
+        replaced_list = [self.mapping[item] for item in labels]
+        return replaced_list
+
+    @staticmethod
+    def calculate_nmi(labels_true, labels_pred, method:Literal["min","geometric","arithmetic","max"]="min"):
+        # 初步看，使用"min" 参数有好的结果
+        return normalized_mutual_info_score(labels_true, labels_pred,average_method=method)
+
+    @staticmethod
+    def calculate_ari(labels_true, labels_pred):
+        return adjusted_rand_score(labels_true, labels_pred)
+
+    def calculate_acc(self, labels_true, labels_pred):
+        reordered_labels = self.best_map(labels_true, labels_pred)
+        ratio = np.sum(labels_true == reordered_labels)/len(labels_true)
+        return ratio
+
+    @staticmethod
+    def calculate_f1_score(labels_true, labels_pred):
+        f1 = f1_score(labels_true, labels_pred)
+        return f1
+
+    @staticmethod
+    def judge_orth(F):
+        FTF = F.T @ F
+        norm2 = torch.linalg.norm(FTF, ord = 2)
+        return norm2
+
+    @staticmethod
+    def judge_orths(F_UL, F_LL):
+        norm_LL = judge_orth(F_LL)
+        norm_UL = judge_orth(F_UL)
+        print(f"norm_UL:{norm_UL},norm_LL:{norm_LL}")
+
+    @staticmethod
+    def record(result, type:Literal["UL", "LL"], **kwargs):
+        match type:
+            case "UL":
+                result["ul_acc"].append(kwargs["acc"])
+                result["ul_val"].append(kwargs["val"])
+                result["ul_nmi"].append(kwargs["nmi"])
+                result["ul_ari"].append(kwargs["ari"])
+                result["ul_f1"].append(kwargs["f1"])
+                result["norm_grad_ul"].append(kwargs["grad"])
+
+            case "LL":
+                result["ll_acc"].append(kwargs["acc"])
+                result["ll_val"].append(kwargs["val"])
+                result["ll_nmi"].append(kwargs["nmi"])
+                result["ll_ari"].append(kwargs["ari"])
+                result["ll_f1"].append(kwargs["f1"])
+                result["norm_grad_ll"].append(kwargs["grad"])
+        return result
+
+    def plot_result(self,data, flag, method:["save","show"],*,picname):
+        result = self.output_type(data, flag)
+        num_plots = len(result.keys())  # 获取总图数
+        cols = 2  # 每行2张图
+        rows = (num_plots + cols - 1) // cols  # 根据总图数计算行数
+
+        fig, axes = plt.subplots(rows, cols, figsize=(12, rows * 4))  # 设置子图
+        axes = axes.flatten()  # 将 axes 转换为一维数组，便于索引
+
+        for i, key in enumerate(result.keys()):
+            ax = axes[i]
+            ax.plot(result[f"{key}"], marker='o', linestyle='-')
+            ax.set_title(key)
+            ax.set_xlabel("epoch")
+            ax.set_ylabel("Value")
+            ax.grid(True)
+
+        # 隐藏多余的子图（如果子图多余图数）
+        for j in range(i + 1, len(axes)):
+            fig.delaxes(axes[j])
+
+        plt.tight_layout()
+        match method:
+            case "show":
+                plt.show()
+            case "save":
+                plt.savefig(picname, format='png', dpi=300)
+
+    @staticmethod
+    def use_result(data, method: Literal["dump","load"], file_name):
+        match method:
+            case "dump":
+                with open(file_name, "w") as file:
+                    json.dump(data, file, indent=4)
+            case "load":
+                with open(file_name, "r") as file:
+                    data = json.load(file)
+                return data
+
+    def result_file_name(self):
+        if self.S['plus_datetime']:
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            return f"logs/{timestamp}_{self.S['file_name']}"
+        else:
+            return f"logs/{self.S['file_name']}"
+
+
+    @staticmethod
+    def output_type(result, flag):
+        output = {}
+        if "val" in flag:
+            output["ll_val"] =result["ll_val"]
+            output["ul_val"] =result["ul_val"]
+        if "grad" in flag:
+            output["norm_grad_ll"] =  result["norm_grad_ll"]
+            output["norm_grad_ul"] = result["norm_grad_ul"]
+        if "nmi" in flag :
+            output["ll_nmi"] = result["ll_nmi"]
+            output["ul_nmi"] = result["ul_nmi"]
+        if "acc" in flag :
+            output["ll_acc"] = result["ll_acc"]
+            output["ul_acc"] = result["ul_acc"]
+        if "ari" in flag :
+            output["ll_ari"] = result["ll_ari"]
+            output["ul_ari"] = result["ul_ari"]
+        if "f1" in flag:
+            output["ll_f1"] =result["ll_f1"]
+            output["ul_f1"] =result["ul_f1"]
+
+        return output
+
+    @staticmethod
+    def best_map(L1, L2):
+        """
+        Reorder labels in L2 to best match L1 using the Hungarian method.
+
+        Parameters:
+        - L1: array-like, ground truth labels (1D array).
+        - L2: array-like, labels to be permuted to match L1 (1D array).
+
+        Returns:
+        - newL2: array-like, reordered labels for L2.
+        """
+        L1 = np.asarray(L1).ravel()
+        L2 = np.asarray(L2).ravel()
+
+        # Ensure L1 and L2 have the same size
+        if L1.shape != L2.shape:
+            raise ValueError("L1 and L2 must have the same size.")
+
+        # Get unique labels and their counts in L1 and L2
+        unique_L1 = np.unique(L1)
+        unique_L2 = np.unique(L2)
+
+        nClass1 = len(unique_L1)
+        nClass2 = len(unique_L2)
+        nClass = max(nClass1, nClass2)
+
+        # Build the cost matrix
+        G = np.zeros((nClass, nClass), dtype=int)
+        for i, label1 in enumerate(unique_L1):
+            for j, label2 in enumerate(unique_L2):
+                G[i, j] = np.sum((L1 == label1) & (L2 == label2))
+
+        # Apply the Hungarian algorithm on the negative cost matrix to maximize the match
+        row_ind, col_ind = linear_sum_assignment(-G)
+
+        # Create a new array for L2 with reordered labels
+        newL2 = np.zeros_like(L2)
+        for i, j in zip(row_ind, col_ind):
+            newL2[L2 == unique_L2[j]] = unique_L1[i]
+
+        return newL2
 class iteration:
 
-    def __init__(self, EV, IN, S):
-        self.S = S
+    def __init__(self, IN, EV):
+        self.S = IN.S
         self.result = {"ll_nmi": [], "norm_grad_ll": [], "ll_val": [], "ll_acc": [], "ll_ari":[], "ll_f1": [],
                     "ul_nmi": [], "norm_grad_ul": [], "ul_val": [], "ul_acc": [], "ul_ari": [], "ul_f1": [],
                     "best_ll_nmi": (0,0), "best_ll_acc": (0,0), "best_ll_ari": (0,0), "best_ll_f1": (0,0),
                     "best_ul_nmi": (0,0), "best_ul_acc": (0,0), "best_ul_ari": (0,0), "best_ul_f1": (0,0),
                     "time_elapsed": []
-                    }
+                    } | self.S
 
         self.update_learning_rate= True
         self.EV = EV
@@ -465,9 +655,9 @@ class iteration:
             self.result["time_elapsed"].append(time.time() - start_time)
 
         self.record_best()
-        self.EV.use_result(self.result,'dump',self.S["file_name"])
-        data = self.EV.use_result({}, "load", self.S["file_name"])
-        if self.S["result_output"] != "None":
+        self.EV.use_result(self.result,'dump',self.EV.result_file_name())
+        data = self.EV.use_result({}, "load", self.EV.result_file_name())
+        if self.S["result_output"] != "none":
             self.EV.plot_result(data, self.S["plot_content"],self.S["result_output"], picname=self.S["figure_name"])
         print(f"ul_nmi:{self.result['best_ul_nmi']}, time: {self.result['time_elapsed'][self.result['best_ul_nmi'][0]]}\n"
           f" ul_acc: {self.result['best_ul_acc']}, time: {self.result['time_elapsed'][self.result['best_ul_acc'][0]]}\n"
@@ -483,213 +673,30 @@ class iteration:
             else:
                 return False
 
-class evaluation:
-
-    def __init__(self, DI, CL):
-        self.cluster = CL.cluster
-        self.data = DI.data
-        self.mapping1 = DI.mapping1
-        self.view2 = DI.view2
-        mapping = {
-            "business": 1,
-            "entertainment": 2,
-            "health": 3,
-            "politics": 4,
-            "sport": 5,
-            "tech": 0
-        }
-        self.mapping = mapping
-
-    def assess(self, data1):
-        i,j = self.mapping1[self.view2][0:2]
-        sources = self.data["sources"]
-        labels_pred = self.cluster(data1, self.data["cluster_num"])
-        labels_true = self.data[f"labels_true_{sources[i]}_{sources[j]}"]
-        nmi = self.calculate_nmi(labels_true, labels_pred)
-        ari = self.calculate_ari(labels_true, labels_pred)
-        acc = self.calculate_acc(labels_true, labels_pred)
-        f1 = self.calculate_acc(labels_true, labels_pred)
-        return acc, nmi, ari, f1
-
-    def replace(self, labels):
-        replaced_list = [self.mapping[item] for item in labels]
-        return replaced_list
-
-    @staticmethod
-    def calculate_nmi(labels_true, labels_pred, method:Literal["min","geometric","arithmetic","max"]="min"):
-        # 初步看，使用"min" 参数有好的结果
-        return normalized_mutual_info_score(labels_true, labels_pred,average_method=method)
-
-    @staticmethod
-    def calculate_ari(labels_true, labels_pred):
-        return adjusted_rand_score(labels_true, labels_pred)
-
-    def calculate_acc(self, labels_true, labels_pred):
-        reordered_labels = self.best_map(labels_true, labels_pred)
-        ratio = np.sum(labels_true == reordered_labels)/len(labels_true)
-        return ratio
-
-    @staticmethod
-    def calculate_f1_score(labels_true, labels_pred):
-        f1 = f1_score(labels_true, labels_pred)
-        return f1
-
-    @staticmethod
-    def judge_orth(F):
-        FTF = F.T @ F
-        norm2 = torch.linalg.norm(FTF, ord = 2)
-        return norm2
-
-    @staticmethod
-    def judge_orths(F_UL, F_LL):
-        norm_LL = judge_orth(F_LL)
-        norm_UL = judge_orth(F_UL)
-        print(f"norm_UL:{norm_UL},norm_LL:{norm_LL}")
-
-    @staticmethod
-    def record(result, type:Literal["UL", "LL"], **kwargs):
-        match type:
-            case "UL":
-                result["ul_acc"].append(kwargs["acc"])
-                result["ul_val"].append(kwargs["val"])
-                result["ul_nmi"].append(kwargs["nmi"])
-                result["ul_ari"].append(kwargs["ari"])
-                result["ul_f1"].append(kwargs["f1"])
-                result["norm_grad_ul"].append(kwargs["grad"])
-
-            case "LL":
-                result["ll_acc"].append(kwargs["acc"])
-                result["ll_val"].append(kwargs["val"])
-                result["ll_nmi"].append(kwargs["nmi"])
-                result["ll_ari"].append(kwargs["ari"])
-                result["ll_f1"].append(kwargs["f1"])
-                result["norm_grad_ll"].append(kwargs["grad"])
-        return result
-
-    def plot_result(self,data, flag, method:["save","show"],*,picname):
-        result = self.output_type(data, flag)
-        num_plots = len(result.keys())  # 获取总图数
-        cols = 2  # 每行2张图
-        rows = (num_plots + cols - 1) // cols  # 根据总图数计算行数
-
-        fig, axes = plt.subplots(rows, cols, figsize=(12, rows * 4))  # 设置子图
-        axes = axes.flatten()  # 将 axes 转换为一维数组，便于索引
-
-        for i, key in enumerate(result.keys()):
-            ax = axes[i]
-            ax.plot(result[f"{key}"], marker='o', linestyle='-')
-            ax.set_title(key)
-            ax.set_xlabel("epoch")
-            ax.set_ylabel("Value")
-            ax.grid(True)
-
-        # 隐藏多余的子图（如果子图多余图数）
-        for j in range(i + 1, len(axes)):
-            fig.delaxes(axes[j])
-
-        plt.tight_layout()
-        match method:
-            case "show":
-                plt.show()
-            case "save":
-                plt.savefig(picname, format='png', dpi=300)
-
-    @staticmethod
-    def use_result(data, method: Literal["dump","load"], file_name):
-        match method:
-            case "dump":
-                with open(file_name, "w") as file:
-                    json.dump(data, file, indent=4)
-            case "load":
-                with open(file_name, "r") as file:
-                    data = json.load(file)
-                return data
-
-
-    @staticmethod
-    def output_type(result, flag):
-        output = {}
-        if "val" in flag:
-            output["ll_val"] =result["ll_val"]
-            output["ul_val"] =result["ul_val"]
-        if "grad" in flag:
-            output["norm_grad_ll"] =  result["norm_grad_ll"]
-            output["norm_grad_ul"] = result["norm_grad_ul"]
-        if "nmi" in flag :
-            output["ll_nmi"] = result["ll_nmi"]
-            output["ul_nmi"] = result["ul_nmi"]
-        if "acc" in flag :
-            output["ll_acc"] = result["ll_acc"]
-            output["ul_acc"] = result["ul_acc"]
-        if "ari" in flag :
-            output["ll_ari"] = result["ll_ari"]
-            output["ul_ari"] = result["ul_ari"]
-        if "f1" in flag:
-            output["ll_f1"] =result["ll_f1"]
-            output["ul_f1"] =result["ul_f1"]
-
-        return output
-
-    @staticmethod
-    def best_map(L1, L2):
-        """
-        Reorder labels in L2 to best match L1 using the Hungarian method.
-
-        Parameters:
-        - L1: array-like, ground truth labels (1D array).
-        - L2: array-like, labels to be permuted to match L1 (1D array).
-
-        Returns:
-        - newL2: array-like, reordered labels for L2.
-        """
-        L1 = np.asarray(L1).ravel()
-        L2 = np.asarray(L2).ravel()
-
-        # Ensure L1 and L2 have the same size
-        if L1.shape != L2.shape:
-            raise ValueError("L1 and L2 must have the same size.")
-
-        # Get unique labels and their counts in L1 and L2
-        unique_L1 = np.unique(L1)
-        unique_L2 = np.unique(L2)
-
-        nClass1 = len(unique_L1)
-        nClass2 = len(unique_L2)
-        nClass = max(nClass1, nClass2)
-
-        # Build the cost matrix
-        G = np.zeros((nClass, nClass), dtype=int)
-        for i, label1 in enumerate(unique_L1):
-            for j, label2 in enumerate(unique_L2):
-                G[i, j] = np.sum((L1 == label1) & (L2 == label2))
-
-        # Apply the Hungarian algorithm on the negative cost matrix to maximize the match
-        row_ind, col_ind = linear_sum_assignment(-G)
-
-        # Create a new array for L2 with reordered labels
-        newL2 = np.zeros_like(L2)
-        for i, j in zip(row_ind, col_ind):
-            newL2[L2 == unique_L2[j]] = unique_L1[i]
-
-        return newL2
-
 def parser():
     parser = argparse.ArgumentParser(description="None")
 
-    parser.add_argument('--use_gpu_or_not', type=bool, default=True,
+    # 数据集导入以及计算的基本设置
+    parser.add_argument('--root_path', type=str, default="/Users/cz/Documents/ML_datasets/3sources",
+                        help = "数据集的根目录")
+    parser.add_argument('--device_set', type=bool, default=True,
                         help = "True 默认使用gpu, cuda或者mps，False 直接使用cpu")
-    parser.add_argument('--file_name', type=str, default="result.json",
-                        help = "输出IT.result中的结果到该文件中，使用json格式")
+    parser.add_argument('--view_num', type=int, choices=[2,3], default=2,
+                        help = "视角个数，数量不同策略不同。")
     parser.add_argument('-v','--view2', type=int, choices=[0,2,4], default=2,
                         help = "双视角时的数据选择，有 0 2 4 共三种")
     parser.add_argument('--seed_num', type=int, default=42,
                         help = "随机种子数，仅数据生成时超图的超边权重处随机。")
+
+    # 迭代次数控制
     parser.add_argument('-L','--max_ll_epochs', type= int, default=10,
                         help = "下层优化函数内部迭代次数")
     parser.add_argument('-U','--max_ul_epochs', type=int, default=1,
                         help = "上层优化函数内部迭代次数")
     parser.add_argument('-E','--Epochs', type=int, default=10,
                         help = "总迭代次数")
+
+    # 聚合时使用的参数
     parser.add_argument('--s_u', type=float, default=0.5,
                         help = "聚合梯度中的上层梯度的系数")
     parser.add_argument('--s_l', type=float, default=0.5, 
@@ -709,6 +716,9 @@ def parser():
     parser.add_argument('--clip_method', type=str,choices=["gaussian","com"], default="gaussian",
                         help = "减小{aplha}和{beta}的方法：'gaussian'是高斯函数，'com'是常规反比例函数。")
 
+    # 涉及到聚类部分的参数
+    parser.add_argument('--cluster_method', type=str, choices=["spectral", "normal"], default="normal",
+                        help = "底层聚类的时候使用谱聚类还是正常聚类，有选择 'spectral'和'normal'")
     parser.add_argument('--update_lambda_r', type=bool, default=True,
                         help = "是否更新组合参数")
     parser.add_argument('--lambda_r', type=float, default=1.0, 
@@ -716,8 +726,13 @@ def parser():
     parser.add_argument('--epsilon', type=float, default=1E-5,
                         help = "多视角超图谱聚类的阈值参数")
 
-    parser.add_argument('--result_output', type=str,choices=["show","save","None"], default="show",
+    # 结果的处理方式
+    parser.add_argument('--result_output', type=str,choices=["show","save","none"], default="none",
                         help = "图片展示的方式，'show' 为输出到窗口，'save'为保存到文件, 'None'为不输出")
+    parser.add_argument('--plus_datetime', type=bool, default=False,
+                        help = "是否在结果文件中添加上时间戳，默认 否")
+    parser.add_argument('--file_name', type=str, default="result.json",
+                        help = "输出IT.result中的结果到该文件中，使用json格式")
     parser.add_argument('--plot_content',type=str, nargs='+', default=["val", "acc", "nmi", "f1"],
                         help="一个列表，包含以下字符串的任意多个, 'grad','val','acc','nmi','ari','f1'")
     parser.add_argument('--figure_name', type=str, default="figure1.png",
@@ -729,12 +744,11 @@ def parser():
     return S
 
 def create_instances(S:dict):
-    DI = data_importation(view2=S["view2"], seed=S["seed_num"], device_set=S["use_gpu_or_not"])
+    DI = data_importation(S)
     IN = initialization(DI)
-    CL = clustering()
-    EV = evaluation(DI, CL)
+    EV = evaluation(DI)
 
-    IT = iteration(EV, IN, S)
+    IT = iteration(IN, EV)
     return IT
 
 
