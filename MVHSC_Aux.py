@@ -36,7 +36,7 @@ class data_importation:
         self.view2 = view2
         self.device = device
         self.cluster_num = 6
-        self.root_path = "E:\\DL_datasets\\3sources\\"
+        self.root_path = "/Users/cz/Documents/ML_datasets/3sources"
         self.sources = ['bbc', 'guardian', 'reuters']
         self.file_types = ['mtx', 'terms', 'docs']
         self.mapping = {
