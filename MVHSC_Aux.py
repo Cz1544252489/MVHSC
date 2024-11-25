@@ -432,9 +432,9 @@ class evaluation:
     def result_file_name(self):
         if self.S['plus_datetime']:
             timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            return f"logs/{timestamp}_{self.S['file_name']}"
+            return f"logs/{self.S['file_name']}_{timestamp}.json"
         else:
-            return f"logs/{self.S['file_name']}"
+            return f"logs/{self.S['file_name']}.json"
 
 
     @staticmethod
@@ -507,12 +507,12 @@ class iteration:
 
     def __init__(self, IN, EV):
         self.S = IN.S
-        self.result = {"ll_nmi": [], "norm_grad_ll": [], "ll_val": [], "ll_acc": [], "ll_ari":[], "ll_f1": [],
-                    "ul_nmi": [], "norm_grad_ul": [], "ul_val": [], "ul_acc": [], "ul_ari": [], "ul_f1": [],
+        self.result = self.S | { "time_elapsed": [],
                     "best_ll_nmi": (0,0), "best_ll_acc": (0,0), "best_ll_ari": (0,0), "best_ll_f1": (0,0),
                     "best_ul_nmi": (0,0), "best_ul_acc": (0,0), "best_ul_ari": (0,0), "best_ul_f1": (0,0),
-                    "time_elapsed": []
-                    } | self.S
+                    "ll_nmi": [], "norm_grad_ll": [], "ll_val": [], "ll_acc": [], "ll_ari":[], "ll_f1": [],
+                    "ul_nmi": [], "norm_grad_ul": [], "ul_val": [], "ul_acc": [], "ul_ari": [], "ul_f1": []
+                    }
 
         self.update_learning_rate= True
         self.EV = EV
@@ -659,9 +659,9 @@ class iteration:
         data = self.EV.use_result({}, "load", self.EV.result_file_name())
         if self.S["result_output"] != "none":
             self.EV.plot_result(data, self.S["plot_content"],self.S["result_output"], picname=self.S["figure_name"])
-        print(f"ul_nmi:{self.result['best_ul_nmi']}, time: {self.result['time_elapsed'][self.result['best_ul_nmi'][0]]}\n"
-          f" ul_acc: {self.result['best_ul_acc']}, time: {self.result['time_elapsed'][self.result['best_ul_acc'][0]]}\n"
-              f"all iteration time: {self.result['time_elapsed'][-1]}")
+        # print(f"ul_nmi:{self.result['best_ul_nmi']}, time: {self.result['time_elapsed'][self.result['best_ul_nmi'][0]]}\n"
+        #  f" ul_acc: {self.result['best_ul_acc']}, time: {self.result['time_elapsed'][self.result['best_ul_acc'][0]]}\n"
+        #      f"all iteration time: {self.result['time_elapsed'][-1]}")
 
     def update_lambda_r(self):
         if self.S["update_lambda_r"]:
@@ -685,7 +685,7 @@ def parser():
                         help = "视角个数，数量不同策略不同。")
     parser.add_argument('-v','--view2', type=int, choices=[0,2,4], default=2,
                         help = "双视角时的数据选择，有 0 2 4 共三种")
-    parser.add_argument('--seed_num', type=int, default=42,
+    parser.add_argument('--seed_num', type=int, default=44,
                         help = "随机种子数，仅数据生成时超图的超边权重处随机。")
 
     # 迭代次数控制
@@ -729,10 +729,10 @@ def parser():
     # 结果的处理方式
     parser.add_argument('--result_output', type=str,choices=["show","save","none"], default="none",
                         help = "图片展示的方式，'show' 为输出到窗口，'save'为保存到文件, 'None'为不输出")
-    parser.add_argument('--plus_datetime', type=bool, default=False,
+    parser.add_argument('--plus_datetime', type=bool, default=True,
                         help = "是否在结果文件中添加上时间戳，默认 否")
-    parser.add_argument('--file_name', type=str, default="result.json",
-                        help = "输出IT.result中的结果到该文件中，使用json格式")
+    parser.add_argument('--file_name', type=str, default="result",
+                        help = "输出IT.result中的结果到该文件中，使用json格式，此处不添加扩展名")
     parser.add_argument('--plot_content',type=str, nargs='+', default=["val", "acc", "nmi", "f1"],
                         help="一个列表，包含以下字符串的任意多个, 'grad','val','acc','nmi','ari','f1'")
     parser.add_argument('--figure_name', type=str, default="figure1.png",
