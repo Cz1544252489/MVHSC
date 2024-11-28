@@ -436,6 +436,12 @@ class evaluation:
         else:
             return f"logs/{self.S['file_name']}.json"
 
+    def result_fig_name(self):
+        if self.S['plus_datetime']:
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            return f"logs/{self.S['figure_name']}_{timestamp}.jpg"
+        else:
+            return f"logs/{self.S['figure_name']}.jpg"
 
     @staticmethod
     def output_type(result, flag):
@@ -503,6 +509,51 @@ class evaluation:
             newL2[L2 == unique_L2[j]] = unique_L1[i]
 
         return newL2
+
+    def process_json_files_multi_keys(self):
+        """
+        遍历指定目录中以指定前缀开头的 JSON 文件，提取多组键的值。
+
+        :param directory: str - 要搜索的目录路径
+        :param prefix: str - 文件名的前缀 (默认: "test4mu_gpu")
+        :param file_extension: str - 文件扩展名 (默认: ".json")
+        :param target_keys: list or None - 如果指定，提取 JSON 文件中的多个键的值
+        :return: list - 包含 (文件名, 键值字典) 的列表
+        """
+        results = []
+
+        # 检查目录是否存在
+        # if not os.path.exists(self.S["directory"]):
+        #     raise FileNotFoundError(f"目录 '{self.S["directory"]}' 不存在！")
+
+        # 遍历文件夹中的所有文件
+        for filename in os.listdir(self.S["directory"]):
+            # 匹配前缀和文件扩展名
+            if filename.startswith(self.S["prefix"]) and filename.endswith(self.S["file_extension"]):
+                file_path = os.path.join(self.S["directory"], filename)
+                try:
+                    # 读取 JSON 文件
+                    with open(file_path, "r") as json_file:
+                        data = json.load(json_file)
+
+                    # 如果指定了目标键，提取对应的值
+                    extracted_data = {}
+                    if self.S["target_keys"]:
+                        for key in self.S["target_keys"]:
+                            if key in data:
+                                extracted_data[key] = data[key]
+                            else:
+                                print(f"警告: 文件 {filename} 中未找到键 '{key}'")
+                    else:
+                        extracted_data = data  # 如果未指定键，返回完整数据
+
+                    results.append((filename, extracted_data))
+
+                except json.JSONDecodeError:
+                    print(f"错误: 文件 {filename} 不是有效的 JSON 格式")
+
+        return results
+
 class iteration:
 
     def __init__(self, IN, EV):
@@ -658,7 +709,7 @@ class iteration:
         self.EV.use_result(self.result,'dump',self.EV.result_file_name())
         data = self.EV.use_result({}, "load", self.EV.result_file_name())
         if self.S["result_output"] != "none":
-            self.EV.plot_result(data, self.S["plot_content"],self.S["result_output"], picname=self.S["figure_name"])
+            self.EV.plot_result(data, self.S["plot_content"],self.S["result_output"], picname=self.EV.result_fig_name())
         # print(f"ul_nmi:{self.result['best_ul_nmi']}, time: {self.result['time_elapsed'][self.result['best_ul_nmi'][0]]}\n"
         #  f" ul_acc: {self.result['best_ul_acc']}, time: {self.result['time_elapsed'][self.result['best_ul_acc'][0]]}\n"
         #      f"all iteration time: {self.result['time_elapsed'][-1]}")
@@ -673,13 +724,23 @@ class iteration:
             else:
                 return False
 
+def str2bool(value):
+    if isinstance(value, bool):
+        return value
+    if value.lower() in {'true', 't', 'yes', 'y', '1'}:
+        return True
+    elif value.lower() in {'false', 'f', 'no', 'n', '0'}:
+        return False
+    else:
+        raise argparse.ArgumentTypeError(f"Invalid boolean value: {value}")
+
 def parser():
     parser = argparse.ArgumentParser(description="None")
 
     # 数据集导入以及计算的基本设置
     parser.add_argument('--root_path', type=str, default="/Users/cz/Documents/ML_datasets/3sources",
                         help = "数据集的根目录")
-    parser.add_argument('--device_set', type=bool, default=True,
+    parser.add_argument('--device_set', type=str2bool, default=True,
                         help = "True 默认使用gpu, cuda或者mps，False 直接使用cpu")
     parser.add_argument('--view_num', type=int, choices=[2,3], default=2,
                         help = "视角个数，数量不同策略不同。")
@@ -693,7 +754,7 @@ def parser():
                         help = "下层优化函数内部迭代次数")
     parser.add_argument('-U','--max_ul_epochs', type=int, default=1,
                         help = "上层优化函数内部迭代次数")
-    parser.add_argument('-E','--Epochs', type=int, default=10,
+    parser.add_argument('-E','--Epochs', type=int, default=300,
                         help = "总迭代次数")
 
     # 聚合时使用的参数
@@ -705,13 +766,13 @@ def parser():
                         help = "聚合梯度中的分配系数，范围[0-1]， 取0时为下层梯度，1为上层梯度")
     parser.add_argument('--lambda_x', type=float, default=1, 
                         help = "超梯度的系数")
-    parser.add_argument('--update_learning_rate', type=bool, default=False,
+    parser.add_argument('--update_learning_rate', type=str2bool, default=False,
                         help = "是否更新学习率，默认不更新。")
     parser.add_argument('--learning_rate', type=float, default=0.01,
                         help = "更新值的时候使用，在x和y的更新时均使用。")
-    parser.add_argument('--orth_y', type=bool, default=True,
+    parser.add_argument('--orth_y', type=str2bool, default=True,
                         help = "内循环结束是是否正交化y，使用修正的QR分解。")
-    parser.add_argument('--orth_x', type=bool, default=True,
+    parser.add_argument('--orth_x', type=str2bool, default=True,
                         help = "内循环结束是是否正交化x，使用修正的QR分解。")
     parser.add_argument('--clip_method', type=str,choices=["gaussian","com"], default="gaussian",
                         help = "减小{aplha}和{beta}的方法：'gaussian'是高斯函数，'com'是常规反比例函数。")
@@ -719,7 +780,7 @@ def parser():
     # 涉及到聚类部分的参数
     parser.add_argument('--cluster_method', type=str, choices=["spectral", "normal"], default="normal",
                         help = "底层聚类的时候使用谱聚类还是正常聚类，有选择 'spectral'和'normal'")
-    parser.add_argument('--update_lambda_r', type=bool, default=True,
+    parser.add_argument('--update_lambda_r', type=str2bool, default=True,
                         help = "是否更新组合参数")
     parser.add_argument('--lambda_r', type=float, default=1.0, 
                         help = "多视角超图谱聚类的组合参数")
@@ -729,7 +790,7 @@ def parser():
     # 结果的处理方式
     parser.add_argument('--result_output', type=str,choices=["show","save","none"], default="none",
                         help = "图片展示的方式，'show' 为输出到窗口，'save'为保存到文件, 'None'为不输出")
-    parser.add_argument('--plus_datetime', type=bool, default=True,
+    parser.add_argument('--plus_datetime', type=str2bool, default=True,
                         help = "是否在结果文件中添加上时间戳，默认 否")
     parser.add_argument('--file_name', type=str, default="result",
                         help = "输出IT.result中的结果到该文件中，使用json格式，此处不添加扩展名")
@@ -737,6 +798,20 @@ def parser():
                         help="一个列表，包含以下字符串的任意多个, 'grad','val','acc','nmi','ari','f1'")
     parser.add_argument('--figure_name', type=str, default="figure1.png",
                         help = "保存图片为文件的时候，图片的文件名")
+
+    # 结果的批量引用
+    parser.add_argument('--directory', type=str, default="logs",
+                        help = "结果的默认输出文件夹，无需修改。")
+    parser.add_argument('--prefix', type=str, default="test4mu_cpu",
+                        help = "选择目标文件夹下特定文件的前缀。")
+    parser.add_argument('--file_extension', type=str, default=".json",
+                        help = "选择目标文件夹下特征文件的后缀。")
+    parser.add_argument('--target_keys', type=str, nargs='+',default=["mu","best_ul_acc"],
+                        help = "选择的文件中内容的键值，支持多组。")
+    parser.add_argument('--key_x', type=str, default="mu",
+                        help = "作图时作为横轴的元素。")
+    parser.add_argument('--key_y', type=str, default="best_ul_acc",
+                        help = "作图时作为纵轴的元素。")
 
 
     S0 = parser.parse_args()
