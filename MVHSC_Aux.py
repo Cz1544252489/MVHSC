@@ -707,8 +707,8 @@ class iteration:
 
         self.record_best()
         self.EV.use_result(self.result,'dump',self.EV.result_file_name())
-        data = self.EV.use_result({}, "load", self.EV.result_file_name())
         if self.S["result_output"] != "none":
+            data = self.EV.use_result({}, "load", self.EV.result_file_name())
             self.EV.plot_result(data, self.S["plot_content"],self.S["result_output"], picname=self.EV.result_fig_name())
         # print(f"ul_nmi:{self.result['best_ul_nmi']}, time: {self.result['time_elapsed'][self.result['best_ul_nmi'][0]]}\n"
         #  f" ul_acc: {self.result['best_ul_acc']}, time: {self.result['time_elapsed'][self.result['best_ul_acc'][0]]}\n"
@@ -780,7 +780,7 @@ def parser():
     # 涉及到聚类部分的参数
     parser.add_argument('--cluster_method', type=str, choices=["spectral", "normal"], default="normal",
                         help = "底层聚类的时候使用谱聚类还是正常聚类，有选择 'spectral'和'normal'")
-    parser.add_argument('--update_lambda_r', type=str2bool, default=True,
+    parser.add_argument('--update_lambda_r', type=str2bool, default=False,
                         help = "是否更新组合参数")
     parser.add_argument('--lambda_r', type=float, default=1.0, 
                         help = "多视角超图谱聚类的组合参数")

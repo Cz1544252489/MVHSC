@@ -29,8 +29,3 @@ plt.title('Line Plot of Sorted Data')
 plt.grid(True)
 plt.legend()
 plt.show()
-
-
-
-
-print("aa")

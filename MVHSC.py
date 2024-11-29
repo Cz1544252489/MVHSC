@@ -9,4 +9,3 @@ def main():
 
 if __name__ == "__main__":
     IT = main()
-    print(f" {IT.S['update_lambda_r']}")
