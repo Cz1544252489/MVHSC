@@ -650,8 +650,11 @@ class iteration:
                 self.result[f"best_{level}_{type}"] = (max_index,max_val)
 
     @staticmethod
-    def Proj(vector, y):
-        Proj_LL = torch.eye(y.shape[0]) - y @ y.T
+    def Proj(vector, y, type:bool):
+        if type:
+            Proj_LL = torch.eye(y.shape[0]) - y @ y.T
+        else:
+            Proj_LL = torch.eye(y.shape[0], dtype=torch.float64)
         return Proj_LL @ vector
 
 
@@ -668,7 +671,7 @@ class iteration:
             self.p_u = self.S["mu"] * self.alpha(epoch) * self.S["s_u"]
             self.p_l = (1 - self.S["mu"]) * self.beta(epoch) * self.S["s_l"]
 
-            self.grad_y = self.Proj(self.p_u * ul_y + self.p_l * ll_y, self.y)
+            self.grad_y = self.Proj(self.p_u * ul_y + self.p_l * ll_y, self.y, self.S["proj_y"])
             self.y = self.update_value(self.y, self.grad_y, self.S["orth_y"])
 
             self.syn("y")
@@ -679,7 +682,7 @@ class iteration:
         self.ll_val = self.LL()
         ll_x = torch.autograd.grad(self.ll_val, self.LL.x)[0]
 
-        self.grad_x = self.S["lambda_x"] * self.Proj(ul_x + self.Z.T @ ll_x, self.x)
+        self.grad_x = self.S["lambda_x"] * self.Proj(ul_x + self.Z @ ll_x, self.x, self.S["proj_x"])
         norm_grad_ll = torch.linalg.norm(self.grad_y, ord=2)
         ll_acc, ll_nmi, ll_ari, ll_f1 = self.EV.assess(self.y.detach().numpy())
         self.EV.record(self.result, "LL", val=self.ll_val.item(), grad=norm_grad_ll.item(),
@@ -776,6 +779,10 @@ def parser():
                         help = "内循环结束是是否正交化x，使用修正的QR分解。")
     parser.add_argument('--clip_method', type=str,choices=["gaussian","com"], default="gaussian",
                         help = "减小{aplha}和{beta}的方法：'gaussian'是高斯函数，'com'是常规反比例函数。")
+    parser.add_argument('--proj_x', type=str2bool, default=True,
+                        help = "更新对x的梯度时是否进行投影。")
+    parser.add_argument('--proj_y', type=str2bool, default=False,
+                        help = "更新对y的梯度时是否进行投影。")
 
     # 涉及到聚类部分的参数
     parser.add_argument('--cluster_method', type=str, choices=["spectral", "normal"], default="normal",
