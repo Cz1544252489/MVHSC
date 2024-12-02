@@ -778,15 +778,15 @@ class iteration:
             self.grad_aggregation(epoch)
             self.get_hessian()
             self.y = self.update_value(self.y, self.grad_y, self.S["orth_y"])
-            self.cl[f"{epoch+1}_B"] = -self.p_u * self.hessian["Ff_xy"] - self.p_l * self.hessian["Ff_xx"]
-            self.cl[f"{epoch+1}_A"] = torch.eye(self.y.shape[0]) - self.p_u * self.hessian["F_yy"] - self.p_l * self.hessian["Ff_xy"]
+            self.cl[f"{epoch+1}_B"] = self.p_u * self.hessian["Ff_xy"] + self.p_l * self.hessian["Ff_xx"]
+            self.cl[f"{epoch+1}_A"] = torch.eye(self.y.shape[0]) + self.p_u * self.hessian["F_yy"] + self.p_l * self.hessian["Ff_xy"]
 
         self.get_gradient()
         self.grad_x = 0
         self.cl[f"{self.S['max_ll_epochs']}_alpha"] = self.grad["F_x"]
         for epoch in range(self.S["max_ll_epochs"]-1,-1,-1):
-            self.grad_x = self.grad_x + self.cl[f"{epoch+1}_B"] @ self.cl[f"{epoch+1}_alpha"]
-            self.cl[f"{epoch}_alpha"] = self.cl[f"{epoch+1}_A"] @ self.cl[f"{epoch+1}_alpha"]
+            self.grad_x = self.grad_x + self.cl[f"{epoch+1}_B"].T @ self.cl[f"{epoch+1}_alpha"]
+            self.cl[f"{epoch}_alpha"] = self.cl[f"{epoch+1}_A"].T @ self.cl[f"{epoch+1}_alpha"]
 
         norm_grad_ll = torch.linalg.norm(self.grad_y, ord=2)
         ll_acc, ll_nmi, ll_ari, ll_f1 = self.EV.assess(self.y.detach().numpy())

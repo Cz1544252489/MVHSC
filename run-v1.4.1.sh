@@ -1,0 +1,1 @@
+python MVHSC.py --max_ll_epochs 5 --hypergrad_method "backward" -E 300 --result_output "show" --plot_content "acc"
