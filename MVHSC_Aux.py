@@ -1,6 +1,8 @@
 # This file aims to collect the auxiliary function of MVHSC.
 import os
 import platform
+import requests
+import zipfile
 
 import argparse
 from random import choices
@@ -65,6 +67,48 @@ class data_importation:
         self.data0 = self.get_data0()
         self.data = self.get_data()
         np.random.seed(S["seed_num"])
+
+    @staticmethod
+    def download_and_extract_zip(url, extract_to):
+        """
+        下载 zip 文件并解压到指定目录。
+
+        参数:
+            url (str): zip 文件的下载链接
+            extract_to (str): 解压文件的目标目录
+        """
+        # 创建目标目录（如果不存在）
+        os.makedirs(extract_to, exist_ok=True)
+
+        # 临时存储 zip 文件路径
+        zip_path = os.path.join(extract_to, "temp.zip")
+
+        try:
+            # 下载 zip 文件
+            print("正在下载文件...")
+            response = requests.get(url, stream=True)
+            response.raise_for_status()  # 检查请求是否成功
+
+            # 将内容写入到临时文件
+            with open(zip_path, "wb") as file:
+                for chunk in response.iter_content(chunk_size=8192):
+                    file.write(chunk)
+            print("下载完成。")
+
+            # 解压 zip 文件
+            print("正在解压文件...")
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                zip_ref.extractall(extract_to)
+            print(f"文件已解压到: {extract_to}")
+
+        except Exception as e:
+            print(f"发生错误: {e}")
+
+        finally:
+            # 删除临时 zip 文件
+            if os.path.exists(zip_path):
+                os.remove(zip_path)
+            print("清理完成。")
 
     @staticmethod
     def normalize_data(X : csr_matrix):
@@ -577,17 +621,53 @@ class iteration:
         self.I = torch.eye(self.x.shape[0], dtype=torch.float64)
         self.grad_x = self.O
         self.grad_y = self.O
-        match self.S["clip_method"]:
-            case "gaussian":
-                self.alpha = lambda x: math.exp(-x**2)
-                self.beta = lambda x: math.exp(-x**2)
-            case "com":
-                self.alpha = lambda x: 1/(x+1)
-                self.beta = lambda x: 1/(x+1)
         self.p_u = 0
         self.p_l = 0
         self.ul_val = 0
         self.ll_val = 0
+        self.clip_choose()
+        self.cl = {}
+        self.grad = {}
+        self.hessian = {}
+
+    def clip_choose(self):
+        self.clip_gaussian = lambda x: math.exp(-x**2)
+        self.clip_com = lambda x: 1/(1+x)
+        self.clip_sqrt = lambda  x: 1/(1+x)**2
+        self.clip_free = lambda x: self.S["clip_free"]
+        self.clip_free_alpha = lambda x: self.S["clip_free_alpha"]
+        self.clip_free_beta = lambda x: self.S["clip_free_beta"]
+        match self.S["clip_method"]:
+            case "gaussian":
+                self.clip = self.clip_gaussian
+            case "com":
+                self.clip = self.clip_com
+            case "sqrt":
+                self.clip = self.clip_sqrt
+            case "free":
+                self.clip = self.clip_free
+        match self.S["clip_method_alpha"]:
+            case "gaussian":
+                self.alpha = self.clip_gaussian
+            case "com":
+                self.alpha = self.clip_com
+            case "sqrt":
+                self.alpha = self.clip_sqrt
+            case "free":
+                self.alpha = self.clip_free_alpha
+            case "none":
+                self.alpha = self.clip
+        match self.S["clip_method_beta"]:
+            case "gaussian":
+                self.beta = self.clip_gaussian
+            case "com":
+                self.beta = self.clip_com
+            case "sqrt":
+                self.beta = self.clip_sqrt
+            case "free":
+                self.beta = self.clip_free_beta
+            case "none":
+                self.beta = self.clip
 
     def syn(self, var:Literal["x","y"]):
         with torch.no_grad():
@@ -598,15 +678,6 @@ class iteration:
                 case "y":
                     self.LL.y.copy_(self.y)
                     self.UL.y.copy_(self.y)
-
-    def get_hessian(self):
-        ul_ll_xy = 2 * self.S["lambda_r"] * (self.y @ self.x.T + self.x @ self.y.T)  # 混合二阶偏导
-        ul_yy = 2 * self.S["lambda_r"] * self.x @ self.x.T
-        ll_yy = 2 * self.Theta + ul_yy
-
-        A = (self.p_u + self.p_l) * ul_ll_xy
-        B = self.I + (self.p_u * ul_yy + self.p_l * ll_yy)
-        self.Z = B @ self.Z + A
 
     class lower_level(nn.Module):
         def __init__(self, x, y, lambda_r, Theta):
@@ -653,41 +724,74 @@ class iteration:
     def Proj(vector, y, type:bool):
         if type:
             Proj_LL = torch.eye(y.shape[0]) - y @ y.T
+            return Proj_LL @ vector
         else:
-            Proj_LL = torch.eye(y.shape[0], dtype=torch.float64)
-        return Proj_LL @ vector
+            return vector
 
+    def get_gradient(self):
+        self.grad["f_x"] = 2 * self.S["lambda_r"] * self.y @ self.y.T @ self.x
+        self.grad["f_y"] = 2 * (self.Theta + self.S["lambda_r"] * self.x @ self.x.T) @ self.y
+        self.grad["F_x"] = self.grad["f_x"]
+        self.grad["F_y"] = 2 * self.S["lambda_r"] * self.x @ self.x.T @ self.y
 
-    def inner_loop(self):
+    def grad_aggregation(self, epoch):
+        self.p_u = self.S["mu"] * self.alpha(epoch) * self.S["s_u"]
+        self.p_l = (1 - self.S["mu"]) * self.beta(epoch) * self.S["s_l"]
+        self.grad_y = self.Proj(self.p_u * self.grad["F_y"] + self.p_l * self.grad["f_y"], self.y, self.S["proj_y"])
+
+    def get_hessian(self):
+        self.hessian["Ff_xy"] = 2 * self.S["lambda_r"] * (self.y @ self.x.T + self.x @ self.y.T)  # 混合二阶偏导
+        self.hessian["F_yy"] = 2 * self.S["lambda_r"] * self.x @ self.x.T
+        self.hessian["f_yy"] = 2 * self.Theta + self.hessian["F_yy"]
+        self.hessian["Ff_xx"] = 2 * self.S["lambda_r"] * self.y @ self.y.T
+
+    def forward_method(self):
+        A = (self.p_u + self.p_l) * self.hessian["Ff_xy"]
+        B = self.I + (self.p_u * self.hessian["F_yy"] + self.p_l * self.hessian["f_yy"])
+        self.Z = B @ self.Z + A
+
+    def inner_loop_forward(self):
         # 使用向前传播方法计算超梯度
         self.Z = self.O
         for epoch in range(self.S["max_ll_epochs"]):
-            self.ll_val = self.LL()
-            ll_y = torch.autograd.grad(self.ll_val, self.LL.y, retain_graph=True)[0]
-
-            self.ul_val = self.UL()
-            ul_y = torch.autograd.grad(self.ul_val, self.UL.y, retain_graph=True)[0]
-
-            self.p_u = self.S["mu"] * self.alpha(epoch) * self.S["s_u"]
-            self.p_l = (1 - self.S["mu"]) * self.beta(epoch) * self.S["s_l"]
-
-            self.grad_y = self.Proj(self.p_u * ul_y + self.p_l * ll_y, self.y, self.S["proj_y"])
+            # 计算四个梯度
+            self.get_gradient()
+            # 计算聚合梯度
+            self.grad_aggregation(epoch)
+            # 更新y
             self.y = self.update_value(self.y, self.grad_y, self.S["orth_y"])
 
-            self.syn("y")
             self.get_hessian()
+            self.forward_method()
 
-        self.ul_val = self.UL()
-        ul_x = torch.autograd.grad(self.ul_val, self.UL.x)[0]
-        self.ll_val = self.LL()
-        ll_x = torch.autograd.grad(self.ll_val, self.LL.x)[0]
+        self.get_gradient()
+        self.grad_x = self.S["lambda_x"] * self.Proj(self.grad["F_x"] + self.Z @ self.grad["f_x"], self.x, self.S["proj_x"])
 
-        self.grad_x = self.S["lambda_x"] * self.Proj(ul_x + self.Z @ ll_x, self.x, self.S["proj_x"])
         norm_grad_ll = torch.linalg.norm(self.grad_y, ord=2)
         ll_acc, ll_nmi, ll_ari, ll_f1 = self.EV.assess(self.y.detach().numpy())
-        self.EV.record(self.result, "LL", val=self.ll_val.item(), grad=norm_grad_ll.item(),
+        self.EV.record(self.result, "LL", val=0, grad=norm_grad_ll.item(),
                        acc=ll_acc, nmi=ll_nmi, ari=ll_ari, f1=ll_f1)
 
+    def inner_loop_backward(self):
+        for epoch in range(self.S["max_ll_epochs"]):
+            self.get_gradient()
+            self.grad_aggregation(epoch)
+            self.get_hessian()
+            self.y = self.update_value(self.y, self.grad_y, self.S["orth_y"])
+            self.cl[f"{epoch+1}_B"] = -self.p_u * self.hessian["Ff_xy"] - self.p_l * self.hessian["Ff_xx"]
+            self.cl[f"{epoch+1}_A"] = torch.eye(self.y.shape[0]) - self.p_u * self.hessian["F_yy"] - self.p_l * self.hessian["Ff_xy"]
+
+        self.get_gradient()
+        self.grad_x = 0
+        self.cl[f"{self.S['max_ll_epochs']}_alpha"] = self.grad["F_x"]
+        for epoch in range(self.S["max_ll_epochs"]-1,-1,-1):
+            self.grad_x = self.grad_x + self.cl[f"{epoch+1}_B"] @ self.cl[f"{epoch+1}_alpha"]
+            self.cl[f"{epoch}_alpha"] = self.cl[f"{epoch+1}_A"] @ self.cl[f"{epoch+1}_alpha"]
+
+        norm_grad_ll = torch.linalg.norm(self.grad_y, ord=2)
+        ll_acc, ll_nmi, ll_ari, ll_f1 = self.EV.assess(self.y.detach().numpy())
+        self.EV.record(self.result, "LL", val=0, grad=norm_grad_ll.item(),
+                       acc=ll_acc, nmi=ll_nmi, ari=ll_ari, f1=ll_f1)
 
     def outer_loop(self):
         for epoch in range(self.S["max_ul_epochs"]):
@@ -704,7 +808,11 @@ class iteration:
     def run(self):
         start_time = time.time()
         for epoch in range(self.S["Epochs"]):
-            self.inner_loop()
+            match self.S["hypergrad_method"]:
+                case "forward":
+                    self.inner_loop_forward()
+                case "backward":
+                    self.inner_loop_backward()
             self.outer_loop()
             self.result["time_elapsed"].append(time.time() - start_time)
 
@@ -713,9 +821,6 @@ class iteration:
         if self.S["result_output"] != "none":
             data = self.EV.use_result({}, "load", self.EV.result_file_name())
             self.EV.plot_result(data, self.S["plot_content"],self.S["result_output"], picname=self.EV.result_fig_name())
-        # print(f"ul_nmi:{self.result['best_ul_nmi']}, time: {self.result['time_elapsed'][self.result['best_ul_nmi'][0]]}\n"
-        #  f" ul_acc: {self.result['best_ul_acc']}, time: {self.result['time_elapsed'][self.result['best_ul_acc'][0]]}\n"
-        #      f"all iteration time: {self.result['time_elapsed'][-1]}")
 
     def update_lambda_r(self):
         if self.S["update_lambda_r"]:
@@ -752,12 +857,16 @@ def parser():
     parser.add_argument('--seed_num', type=int, default=44,
                         help = "随机种子数，仅数据生成时超图的超边权重处随机。")
 
+    # 计算超梯度的方法
+    parser.add_argument('--hypergrad_method', type=str, choices=["backward", "forward"],
+                        default="backward", help="计算超梯度的方法， backward反向传播 forward正向传播")
+
     # 迭代次数控制
     parser.add_argument('-L','--max_ll_epochs', type= int, default=10,
                         help = "下层优化函数内部迭代次数")
     parser.add_argument('-U','--max_ul_epochs', type=int, default=1,
                         help = "上层优化函数内部迭代次数")
-    parser.add_argument('-E','--Epochs', type=int, default=300,
+    parser.add_argument('-E','--Epochs', type=int, default=1,
                         help = "总迭代次数")
 
     # 聚合时使用的参数
@@ -777,8 +886,18 @@ def parser():
                         help = "内循环结束是是否正交化y，使用修正的QR分解。")
     parser.add_argument('--orth_x', type=str2bool, default=True,
                         help = "内循环结束是是否正交化x，使用修正的QR分解。")
-    parser.add_argument('--clip_method', type=str,choices=["gaussian","com"], default="gaussian",
-                        help = "减小{aplha}和{beta}的方法：'gaussian'是高斯函数，'com'是常规反比例函数。")
+    parser.add_argument('--clip_method', type=str,choices=["gaussian","com", "sqrt", "free"], default="gaussian",
+                        help = "减小{aplha}和{beta}的方法：'gaussian'是高斯函数，'com'是常规反比例函数，'sqrt'是平方反比函数。")
+    parser.add_argument('--clip_method_alpha', type=str, choices=["gaussian", "com", "sqrt", "free", "none"], default="none",
+                        help = "减少{alpha}的方法, 选择 none 的时候由 clip_method决定。")
+    parser.add_argument('--clip_method_beta', type=str, choices=["gaussian", "com", "sqrt", "free", "none"], default="none",
+                        help = "减少{beta}的方法, 选择 none 的时候由 clip_method决定。")
+    parser.add_argument('--clip_free', type=float, default=1.0,
+                        help = "当clip_method取free时，alpha和beta的取值。")
+    parser.add_argument('--clip_free_alpha', type=float, default=1.0,
+                        help = "当clip_method_alpha取free时，alpha的取值")
+    parser.add_argument('--clip_free_beta', type=float, default=1.0,
+                        help = "当clip_method_beta取free时，beta的取值")
     parser.add_argument('--proj_x', type=str2bool, default=True,
                         help = "更新对x的梯度时是否进行投影。")
     parser.add_argument('--proj_y', type=str2bool, default=False,

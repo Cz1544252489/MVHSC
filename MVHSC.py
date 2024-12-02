@@ -14,3 +14,4 @@ if __name__ == "__main__":
     print([IT.ul_val])
     print([torch.linalg.norm(IT.grad_x, ord=2)])
     print([torch.linalg.norm(IT.grad_y, ord=2)])
+    print("aa")

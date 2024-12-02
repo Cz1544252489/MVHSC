@@ -82,3 +82,73 @@ test_and_show_max_ll_epochs(){
   python test.py --prefix $filename --target_keys "max_ll_epochs" "best_ul_acc" --key_x "max_ll_epochs" --key_y "best_ul_acc"
 }
 # max_ll_epochs为1的时候就足够了
+
+test_and_show_beta(){
+  filename="v1.3.5-1-beta"
+  x_plot="clip_free_beta"
+  y_plot="best_ul_acc"
+  for x in $(seq 0 0.1 1); do
+    echo $x
+    python MVHSC.py --max_ll_epochs 10 --clip_method_alpha "com" --clip_method_beta "free" --clip_free_beta $x \
+    --file_name $filename
+  done
+  python test.py --prefix $filename --target_keys $x_plot $y_plot --key_x $x_plot --key_y $y_plot
+}
+# 当取beta为0.5时有最好的结果，最小的迭代次数和最大的准确率
+
+test_and_show_beta2(){
+  filename="v1.3.5-2-beta"
+  x_plot="clip_free_beta"
+  y_plot="best_ul_acc"
+  for x in $(seq 0 0.1 1); do
+    echo $x
+    python MVHSC.py --max_ll_epochs 10 --clip_method_alpha "gaussian" --clip_method_beta "free" --clip_free_beta $x \
+    --file_name $filename
+  done
+  python test.py --prefix $filename --target_keys $x_plot $y_plot --key_x $x_plot --key_y $y_plot
+}
+# 取0时有最优准确率，取0.6是有最小迭代次数
+
+test_and_show_beta3(){
+  filename="v1.3.5-3-beta"
+  x_plot="clip_free_beta"
+  y_plot="best_ul_acc"
+  for x in $(seq 0 0.1 1); do
+    echo $x
+    python MVHSC.py --max_ll_epochs 10 --clip_method_alpha "sqrt" --clip_method_beta "free" --clip_free_beta $x \
+    --file_name $filename
+  done
+  python test.py --prefix $filename --target_keys $x_plot $y_plot --key_x $x_plot --key_y $y_plot
+}
+# 取0时有最优准确率，取0.5有最小迭代次数，综合最优为0.6
+
+test_and_show_beta4(){
+  filename="v1.3.5-5-beta"
+  x_plot="clip_free_beta"
+  y_plot="best_ul_acc"
+  for x in $(seq 0 0.1 1); do
+    echo $x
+    python MVHSC.py --max_ll_epochs 1 --clip_method_alpha "gaussian" --clip_method_beta "free" --clip_free_beta $x \
+    --file_name $filename
+  done
+  python test.py --prefix $filename --target_keys $x_plot $y_plot --key_x $x_plot --key_y $y_plot
+}
+
+test_orth_xy1(){
+  filename="v1.3.5_orth_xy1"
+  python MVHSC.py --orth_x True --orth_y True --file_name $filename \
+  --result_output "save" --figure_name "v1.3.5_TT" --plot_content "acc" "f1"
+  python MVHSC.py --orth_x False --orth_y True --file_name $filename \
+  --result_output "save" --figure_name "v1.3.5_FT" --plot_content "acc" "f1"
+  python MVHSC.py --orth_x True --orth_y False --file_name $filename \
+  --result_output "save" --figure_name "v1.3.5_TF" --plot_content "acc" "f1"
+  # python MVHSC.py --orth_x False --orth_y False --file_name $filename \
+  # --result_output "save" --figure_name "v1.3.5_FF" --plot_content "acc" "f1"
+}
+test_orth_xy1
+# FF的情况无法收敛，会报错。 TT的情况效果最好。
+
+
+
+
+
