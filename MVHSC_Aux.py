@@ -609,7 +609,6 @@ class iteration:
                     "ul_nmi": [], "norm_grad_ul": [], "ul_val": [], "ul_acc": [], "ul_ari": [], "ul_f1": []
                     }
 
-        self.update_learning_rate= True
         self.EV = EV
         self.x = IN.x
         self.y = IN.y
@@ -632,7 +631,7 @@ class iteration:
 
     def clip_choose(self):
         self.clip_gaussian = lambda x: math.exp(-x**2)
-        self.clip_com = lambda x: 1/(1+x)
+        self.clip_com = lambda x: 0.5/(1+x)
         self.clip_sqrt = lambda  x: 1/(1+x)**2
         self.clip_free = lambda x: self.S["clip_free"]
         self.clip_free_alpha = lambda x: self.S["clip_free_alpha"]
@@ -750,6 +749,19 @@ class iteration:
         B = self.I + (self.p_u * self.hessian["F_yy"] + self.p_l * self.hessian["f_yy"])
         self.Z = B @ self.Z + A
 
+    def record(self, type:str=Literal["x","y"]):
+        match type:
+            case "x":
+                ul_acc, ul_nmi, ul_ari, ul_f1 = self.EV.assess(self.x.detach().numpy())
+                norm_grad_x = torch.linalg.norm(self.grad_x, ord=2)
+                self.EV.record(self.result,"UL", val=self.ul_val.item(), grad=norm_grad_x.item(),
+                               acc=ul_acc, nmi=ul_nmi, ari=ul_ari, f1=ul_f1)
+            case "y":
+                norm_grad_ll = torch.linalg.norm(self.grad_y, ord=2)
+                ll_acc, ll_nmi, ll_ari, ll_f1 = self.EV.assess(self.y.detach().numpy())
+                self.EV.record(self.result, "LL", val=0, grad=norm_grad_ll.item(),
+                               acc=ll_acc, nmi=ll_nmi, ari=ll_ari, f1=ll_f1)
+
     def inner_loop_forward(self):
         # 使用向前传播方法计算超梯度
         self.Z = self.O
@@ -767,10 +779,7 @@ class iteration:
         self.get_gradient()
         self.grad_x = self.S["lambda_x"] * self.Proj(self.grad["F_x"] + self.Z @ self.grad["f_x"], self.x, self.S["proj_x"])
 
-        norm_grad_ll = torch.linalg.norm(self.grad_y, ord=2)
-        ll_acc, ll_nmi, ll_ari, ll_f1 = self.EV.assess(self.y.detach().numpy())
-        self.EV.record(self.result, "LL", val=0, grad=norm_grad_ll.item(),
-                       acc=ll_acc, nmi=ll_nmi, ari=ll_ari, f1=ll_f1)
+        self.record("y")
 
     def inner_loop_backward(self):
         for epoch in range(self.S["max_ll_epochs"]):
@@ -788,22 +797,15 @@ class iteration:
             self.grad_x = self.grad_x + self.cl[f"{epoch+1}_B"].T @ self.cl[f"{epoch+1}_alpha"]
             self.cl[f"{epoch}_alpha"] = self.cl[f"{epoch+1}_A"].T @ self.cl[f"{epoch+1}_alpha"]
 
-        norm_grad_ll = torch.linalg.norm(self.grad_y, ord=2)
-        ll_acc, ll_nmi, ll_ari, ll_f1 = self.EV.assess(self.y.detach().numpy())
-        self.EV.record(self.result, "LL", val=0, grad=norm_grad_ll.item(),
-                       acc=ll_acc, nmi=ll_nmi, ari=ll_ari, f1=ll_f1)
+        self.record("y")
 
     def outer_loop(self):
         for epoch in range(self.S["max_ul_epochs"]):
             self.x = self.update_value(self.x, self.grad_x, self.S["orth_x"])
             self.ul_val = self.UL()
-            self.syn("x")
             self.update_lambda_r()
 
-            ul_acc, ul_nmi, ul_ari, ul_f1 = self.EV.assess(self.x.detach().numpy())
-            norm_grad_x = torch.linalg.norm(self.grad_x, ord=2)
-            self.EV.record(self.result,"UL", val=self.ul_val.item(), grad=norm_grad_x.item(),
-                           acc=ul_acc, nmi=ul_nmi, ari=ul_ari, f1=ul_f1)
+        self.record("x")
 
     def run(self):
         start_time = time.time()
@@ -846,7 +848,7 @@ def parser():
     parser = argparse.ArgumentParser(description="None")
 
     # 数据集导入以及计算的基本设置
-    parser.add_argument('--root_path', type=str, default="/Users/cz/Documents/ML_datasets/3sources",
+    parser.add_argument('--root_path', type=str, default="./ML_datasets/3sources",
                         help = "数据集的根目录")
     parser.add_argument('--device_set', type=str2bool, default=True,
                         help = "True 默认使用gpu, cuda或者mps，False 直接使用cpu")
@@ -866,7 +868,7 @@ def parser():
                         help = "下层优化函数内部迭代次数")
     parser.add_argument('-U','--max_ul_epochs', type=int, default=1,
                         help = "上层优化函数内部迭代次数")
-    parser.add_argument('-E','--Epochs', type=int, default=1,
+    parser.add_argument('-E','--Epochs', type=int, default=300,
                         help = "总迭代次数")
 
     # 聚合时使用的参数
@@ -886,7 +888,7 @@ def parser():
                         help = "内循环结束是是否正交化y，使用修正的QR分解。")
     parser.add_argument('--orth_x', type=str2bool, default=True,
                         help = "内循环结束是是否正交化x，使用修正的QR分解。")
-    parser.add_argument('--clip_method', type=str,choices=["gaussian","com", "sqrt", "free"], default="gaussian",
+    parser.add_argument('--clip_method', type=str,choices=["gaussian","com", "sqrt", "free"], default="com",
                         help = "减小{aplha}和{beta}的方法：'gaussian'是高斯函数，'com'是常规反比例函数，'sqrt'是平方反比函数。")
     parser.add_argument('--clip_method_alpha', type=str, choices=["gaussian", "com", "sqrt", "free", "none"], default="none",
                         help = "减少{alpha}的方法, 选择 none 的时候由 clip_method决定。")
@@ -900,7 +902,7 @@ def parser():
                         help = "当clip_method_beta取free时，beta的取值")
     parser.add_argument('--proj_x', type=str2bool, default=True,
                         help = "更新对x的梯度时是否进行投影。")
-    parser.add_argument('--proj_y', type=str2bool, default=False,
+    parser.add_argument('--proj_y', type=str2bool, default=True,
                         help = "更新对y的梯度时是否进行投影。")
 
     # 涉及到聚类部分的参数
@@ -914,13 +916,13 @@ def parser():
                         help = "多视角超图谱聚类的阈值参数")
 
     # 结果的处理方式
-    parser.add_argument('--result_output', type=str,choices=["show","save","none"], default="none",
+    parser.add_argument('--result_output', type=str,choices=["show","save","none"], default="show",
                         help = "图片展示的方式，'show' 为输出到窗口，'save'为保存到文件, 'None'为不输出")
     parser.add_argument('--plus_datetime', type=str2bool, default=True,
                         help = "是否在结果文件中添加上时间戳，默认 否")
     parser.add_argument('--file_name', type=str, default="result",
                         help = "输出IT.result中的结果到该文件中，使用json格式，此处不添加扩展名")
-    parser.add_argument('--plot_content',type=str, nargs='+', default=["val", "acc", "nmi", "f1"],
+    parser.add_argument('--plot_content',type=str, nargs='+', default=["acc", "grad"],
                         help="一个列表，包含以下字符串的任意多个, 'grad','val','acc','nmi','ari','f1'")
     parser.add_argument('--figure_name', type=str, default="figure1.png",
                         help = "保存图片为文件的时候，图片的文件名")
