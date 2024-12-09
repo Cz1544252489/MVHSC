@@ -847,6 +847,9 @@ def str2bool(value):
 def parser():
     parser = argparse.ArgumentParser(description="None")
 
+    parser.add_argument('--comment', type=str, default="",
+                        help = "辅助使用的变量。")
+
     # 数据集导入以及计算的基本设置
     parser.add_argument('--root_path', type=str, default="./ML_datasets/3sources",
                         help = "数据集的根目录")
@@ -916,7 +919,7 @@ def parser():
                         help = "多视角超图谱聚类的阈值参数")
 
     # 结果的处理方式
-    parser.add_argument('--result_output', type=str,choices=["show","save","none"], default="show",
+    parser.add_argument('--result_output', type=str,choices=["show","save","none"], default="none",
                         help = "图片展示的方式，'show' 为输出到窗口，'save'为保存到文件, 'None'为不输出")
     parser.add_argument('--plus_datetime', type=str2bool, default=True,
                         help = "是否在结果文件中添加上时间戳，默认 否")

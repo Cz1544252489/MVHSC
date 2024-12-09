@@ -43,4 +43,21 @@ test_orth_proj_1(){
 #   --result_output "save" --figure_name "FFFF" --plot_content "acc" "grad"
   #######################
 }
-test_orth_proj_1
+
+test_orth_proj_2(){
+  filename="v1.4.1_2_orth_proj"
+  for num in $(seq 1 1 100); do
+    echo "$num"
+    ##################  TT
+    python MVHSC.py --orth_x T --orth_y T --proj_x T --proj_y T --file_name $filename --comment "TTTT" --seed_num "$num" --hypergrad_method "forward"
+    python MVHSC.py --orth_x T --orth_y T --proj_x T --proj_y F --file_name $filename --comment "TTTF" --seed_num "$num" --hypergrad_method "forward"
+    python MVHSC.py --orth_x T --orth_y T --proj_x F --proj_y T --file_name $filename --comment "TTFT" --seed_num "$num" --hypergrad_method "forward"
+    python MVHSC.py --orth_x T --orth_y T --proj_x F --proj_y F --file_name $filename --comment "TTFF" --seed_num "$num" --hypergrad_method "forward"
+    ##################  TF
+    python MVHSC.py --orth_x T --orth_y F --proj_x T --proj_y T --file_name $filename --comment "TFTT" --seed_num "$num" --hypergrad_method "forward"
+    python MVHSC.py --orth_x T --orth_y F --proj_x T --proj_y F --file_name $filename --comment "TFTF" --seed_num "$num" --hypergrad_method "forward"
+    python MVHSC.py --orth_x T --orth_y F --proj_x F --proj_y T --file_name $filename --comment "TFFT" --seed_num "$num" --hypergrad_method "forward"
+    python MVHSC.py --orth_x T --orth_y F --proj_x F --proj_y F --file_name $filename --comment "TFFF" --seed_num "$num" --hypergrad_method "forward"
+  done
+}
+test_orth_proj_2

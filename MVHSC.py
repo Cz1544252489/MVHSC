@@ -10,8 +10,11 @@ def main():
 
 if __name__ == "__main__":
     IT = main()
-    print(IT.result["best_ul_acc"])
-    print([IT.ul_val])
-    print([torch.linalg.norm(IT.grad_x, ord=2)])
-    print([torch.linalg.norm(IT.grad_y, ord=2)])
-    print("aa")
+    with open("output2.txt","a") as file:
+        print(f"{IT.result['hypergrad_method']}", end="\t", file=file)
+        print(f"{IT.result['seed_num']}", end="\t", file=file)
+        print(f"{IT.result['comment']}", end="\t", file=file)
+        print(f"{IT.result['best_ul_acc'][0]}", end="\t", file=file)
+        print(f"{IT.result['best_ul_acc'][1]}", end="\t", file=file)
+        print(f"{IT.result['time_elapsed'][IT.result['best_ul_acc'][0]]}", end="\t", file=file)
+        print(f"{IT.result['time_elapsed'][0]}", end="\n", file=file)
