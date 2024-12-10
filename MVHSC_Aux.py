@@ -705,10 +705,17 @@ class iteration:
             # term2 = 0.1 * torch.linalg.norm(self.x)
             return  (term1 )
 
-    def update_value(self, x, grad, method: bool = False):
+    def update_value(self, x, grad, method = False):
         x = x + self.S["learning_rate"] * grad
-        if method:
-            x, _ = torch.linalg.qr(x, mode="reduced")
+        if method in ["hybrid", True]:
+            if method == True:
+                x, _ = torch.linalg.qr(x, mode="reduced")
+            else:
+                Orth = torch.abs((torch.trace(x.T @ x) - x.shape[1]) / x.shape[1])
+                print(Orth)
+                if Orth >= self.S["orth_theta"]:
+                    x, _ = torch.linalg.qr(x, mode="reduced")
+
         return x
 
     def record_best(self):
@@ -841,6 +848,8 @@ def str2bool(value):
         return True
     elif value.lower() in {'false', 'f', 'no', 'n', '0'}:
         return False
+    elif value.lower() in {'h', 'hybrid', 'hy'}:
+        return "hybrid"
     else:
         raise argparse.ArgumentTypeError(f"Invalid boolean value: {value}")
 
@@ -887,10 +896,6 @@ def parser():
                         help = "是否更新学习率，默认不更新。")
     parser.add_argument('--learning_rate', type=float, default=0.01,
                         help = "更新值的时候使用，在x和y的更新时均使用。")
-    parser.add_argument('--orth_y', type=str2bool, default=True,
-                        help = "内循环结束是是否正交化y，使用修正的QR分解。")
-    parser.add_argument('--orth_x', type=str2bool, default=True,
-                        help = "内循环结束是是否正交化x，使用修正的QR分解。")
     parser.add_argument('--clip_method', type=str,choices=["gaussian","com", "sqrt", "free"], default="com",
                         help = "减小{aplha}和{beta}的方法：'gaussian'是高斯函数，'com'是常规反比例函数，'sqrt'是平方反比函数。")
     parser.add_argument('--clip_method_alpha', type=str, choices=["gaussian", "com", "sqrt", "free", "none"], default="none",
@@ -903,6 +908,14 @@ def parser():
                         help = "当clip_method_alpha取free时，alpha的取值")
     parser.add_argument('--clip_free_beta', type=float, default=1.0,
                         help = "当clip_method_beta取free时，beta的取值")
+
+    # 涉及正交与投影的部分
+    parser.add_argument('--orth_theta', type= float, default= 0.1,
+                        help = "正交部分使用混合模式的时候，基准参数")
+    parser.add_argument('--orth_y', type=str2bool, default=True,
+                        help = "内循环结束是是否正交化y，使用修正的QR分解。")
+    parser.add_argument('--orth_x', type=str2bool, default=True,
+                        help = "内循环结束是是否正交化x，使用修正的QR分解。")
     parser.add_argument('--proj_x', type=str2bool, default=True,
                         help = "更新对x的梯度时是否进行投影。")
     parser.add_argument('--proj_y', type=str2bool, default=True,
