@@ -6,19 +6,22 @@ set filename=v1.4.1_2_orth_proj
 set EPOCHS=200
 
 :: 循环从 101 到 EPOCHS
-for /L %%num in (101, 1, %EPOCHS%) do (
+for /L %%i in (101, 1, %EPOCHS%) do (
+    :: 将循环变量赋值给 num
+    set num=%%i
+
     :: 打印当前状态
-    echo %%num -> %EPOCHS%
+    echo !num! -> %EPOCHS%
 
     :: 调用 Python 脚本，执行不同的参数组合
-    call :run_python %%num T T T T
-    call :run_python %%num T T T F
-    call :run_python %%num T T F T
-    call :run_python %%num T T F F
-    call :run_python %%num T F T T
-    call :run_python %%num T F T F
-    call :run_python %%num T F F T
-    call :run_python %%num T F F F
+    call :run_python !num! T T T T
+    call :run_python !num! T T T F
+    call :run_python !num! T T F T
+    call :run_python !num! T T F F
+    call :run_python !num! T F T T
+    call :run_python !num! T F T F
+    call :run_python !num! T F F T
+    call :run_python !num! T F F F
 )
 
 :: 子过程调用 Python 脚本
