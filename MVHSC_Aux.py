@@ -763,7 +763,8 @@ class iteration:
     def record(self, type:str=Literal["x","y"]):
         match type:
             case "x":
-                ul_acc, ul_nmi, ul_ari, ul_f1 = self.EV.assess(self.x.detach().numpy())
+                x = self.x.cpu()
+                ul_acc, ul_nmi, ul_ari, ul_f1 = self.EV.assess(x.numpy())
                 norm_grad_x = torch.linalg.norm(self.grad_x, ord=2)
                 self.EV.record(self.result,"UL", val=self.ul_val.item(), grad=norm_grad_x.item(),
                                acc=ul_acc, nmi=ul_nmi, ari=ul_ari, f1=ul_f1)
@@ -864,7 +865,7 @@ def parser():
                         help = "辅助使用的变量。")
 
     # 数据集导入以及计算的基本设置
-    parser.add_argument('--root_path', type=str, default="./ML_datasets/3sources",
+    parser.add_argument('--root_path', type=str, default="./3sources",
                         help = "数据集的根目录")
     parser.add_argument('--device_set', type=str2bool, default=True,
                         help = "True 默认使用gpu, cuda或者mps，False 直接使用cpu")
