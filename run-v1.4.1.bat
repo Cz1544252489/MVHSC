@@ -11,7 +11,7 @@ for /L %%i in (1, 1, %EPOCHS%) do (
     set /A seed_num=!RANDOM!
 
     :: 打印当前状态
-    echo Seed: !seed_num! | EPOCH: %%i -> %EPOCHS%
+    echo Epoch: %%i of %EPOCHS% | Seed: !seed_num!
 
     :: 调用 Python 脚本，执行不同的参数组合
     call :run_python !num! T T T T
