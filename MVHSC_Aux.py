@@ -770,7 +770,8 @@ class iteration:
                                acc=ul_acc, nmi=ul_nmi, ari=ul_ari, f1=ul_f1)
             case "y":
                 norm_grad_ll = torch.linalg.norm(self.grad_y, ord=2)
-                ll_acc, ll_nmi, ll_ari, ll_f1 = self.EV.assess(self.y.detach().numpy())
+                y = self.y.cpu()
+                ll_acc, ll_nmi, ll_ari, ll_f1 = self.EV.assess(y.numpy())
                 self.EV.record(self.result, "LL", val=0, grad=norm_grad_ll.item(),
                                acc=ll_acc, nmi=ll_nmi, ari=ll_ari, f1=ll_f1)
 
