@@ -2,16 +2,16 @@
 setlocal enabledelayedexpansion
 
 :: 固定参数
-set filename=v1.4.1_2_orth_proj
-set EPOCHS=200
+set filename=v1.4.1_4_orth_proj
+set EPOCHS=100
 
-:: 循环从 101 到 EPOCHS
-for /L %%i in (101, 1, %EPOCHS%) do (
-    :: 将循环变量赋值给 num
-    set num=%%i
+:: 循环从 1 到 EPOCHS
+for /L %%i in (1, 1, %EPOCHS%) do (
+    :: 使用随机数生成 seed_num
+    set /A seed_num=!RANDOM!
 
     :: 打印当前状态
-    echo !num! -> %EPOCHS%
+    echo Seed: !seed_num! | EPOCH: %%i -> %EPOCHS%
 
     :: 调用 Python 脚本，执行不同的参数组合
     call :run_python !num! T T T T
