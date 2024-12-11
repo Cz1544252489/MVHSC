@@ -269,8 +269,8 @@ class initialization:
                     l += 1
 
         if backend=="torch":
-            Theta = {key: torch.from_numpy(value) for key, value in Theta.items()}
-            F = {key: torch.from_numpy(value) for key, value in F.items()}
+            Theta = {key: torch.from_numpy(value).to(self.device) for key, value in Theta.items()}
+            F = {key: torch.from_numpy(value).to(self.device) for key, value in F.items()}
 
         x = F["UL"]
         y = F["LL"]
@@ -315,12 +315,16 @@ class initialization:
 
         _, F = eigsh(Theta, p, which='LM')
 
+        Theta = Theta.astype(np.float32)
+        F = F.astype(np.float32)
+
         return Theta, F
 
 class evaluation:
 
     def __init__(self, DI):
         self.data = DI.data
+        self.device = DI.device
         self.mapping1 = DI.mapping1
         self.view2 = DI.view2
         self.S = DI.S
@@ -610,14 +614,15 @@ class iteration:
                     }
 
         self.EV = EV
+        self.device = EV.device
         self.x = IN.x
         self.y = IN.y
         self.Theta = IN.Theta["LL"]
         self.UL = self.upper_level(self.x, self.y, self.S["lambda_r"])
         self.LL = self.lower_level(self.x, self.y, self.S["lambda_r"], self.Theta)
-        self.O = torch.zeros(self.x.shape[0], dtype=torch.float64)
+        self.O = torch.zeros(self.x.shape[0], dtype=torch.float32, device= self.device)
         self.Z = self.O
-        self.I = torch.eye(self.x.shape[0], dtype=torch.float64)
+        self.I = torch.eye(self.x.shape[0], dtype=torch.float32, device= self.device)
         self.grad_x = self.O
         self.grad_y = self.O
         self.p_u = 0
@@ -726,10 +731,9 @@ class iteration:
                 max_index =  data.index(max_val)
                 self.result[f"best_{level}_{type}"] = (max_index,max_val)
 
-    @staticmethod
-    def Proj(vector, y, type:bool):
+    def Proj(self, vector, y, type:bool):
         if type:
-            Proj_LL = torch.eye(y.shape[0]) - y @ y.T
+            Proj_LL = torch.eye(y.shape[0], device=self.device) - y @ y.T
             return Proj_LL @ vector
         else:
             return vector
@@ -795,7 +799,7 @@ class iteration:
             self.get_hessian()
             self.y = self.update_value(self.y, self.grad_y, self.S["orth_y"])
             self.cl[f"{epoch+1}_B"] = self.p_u * self.hessian["Ff_xy"] + self.p_l * self.hessian["Ff_xx"]
-            self.cl[f"{epoch+1}_A"] = torch.eye(self.y.shape[0]) + self.p_u * self.hessian["F_yy"] + self.p_l * self.hessian["Ff_xy"]
+            self.cl[f"{epoch+1}_A"] = torch.eye(self.y.shape[0], device= self.device) + self.p_u * self.hessian["F_yy"] + self.p_l * self.hessian["Ff_xy"]
 
         self.get_gradient()
         self.grad_x = 0
@@ -833,7 +837,7 @@ class iteration:
 
     def update_lambda_r(self):
         if self.S["update_lambda_r"]:
-            val = torch.trace(self.x.T @ (torch.eye(self.x.shape[0]) - self.x @ self.x.T) @ self.x)
+            val = torch.trace(self.x.T @ (torch.eye(self.x.shape[0], device= self.device) - self.x @ self.x.T) @ self.x)
             # print(val.item())
             if val <= self.S["epsilon"]:
                 self.S["lambda_r"]= self.S["lambda_r"]/2
