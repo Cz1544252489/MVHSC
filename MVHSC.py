@@ -10,6 +10,3 @@ def main():
 
 if __name__ == "__main__":
     IT = main()
-    print(IT.result["best_ul_acc"])
-
-    print("aa")
