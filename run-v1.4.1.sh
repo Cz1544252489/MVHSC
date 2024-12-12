@@ -45,20 +45,22 @@ test_orth_proj_1(){
 }
 
 test_orth_proj_2(){
-  filename="v1.4.1_2_orth_proj"
-  EPOCHS=200
-  for num in $(seq 101 1 $EPOCHS); do
-    echo "$num-> $EPOCHS"
+  filename="v1.4.1_3_orth_proj"
+  EPOCHS=100
+  for num in $(seq 1 1 $EPOCHS); do
+    seed_num=$((RANDOM))
+
+    echo "$num-> $EPOCHS  $seed_num"
     ##################  TT
-    python MVHSC.py --orth_x T --orth_y T --proj_x T --proj_y T --file_name $filename --seed_num "$num" --hypergrad_method "forward"
-    python MVHSC.py --orth_x T --orth_y T --proj_x T --proj_y F --file_name $filename --seed_num "$num" --hypergrad_method "forward"
-    python MVHSC.py --orth_x T --orth_y T --proj_x F --proj_y T --file_name $filename --seed_num "$num" --hypergrad_method "forward"
-    python MVHSC.py --orth_x T --orth_y T --proj_x F --proj_y F --file_name $filename --seed_num "$num" --hypergrad_method "forward"
+    python MVHSC.py --orth_x T --orth_y T --proj_x T --proj_y T --file_name $filename --seed_num "$seed_num" --hypergrad_method "forward"
+    python MVHSC.py --orth_x T --orth_y T --proj_x T --proj_y F --file_name $filename --seed_num "$seed_num" --hypergrad_method "forward"
+    python MVHSC.py --orth_x T --orth_y T --proj_x F --proj_y T --file_name $filename --seed_num "$seed_num" --hypergrad_method "forward"
+    python MVHSC.py --orth_x T --orth_y T --proj_x F --proj_y F --file_name $filename --seed_num "$seed_num" --hypergrad_method "forward"
     ##################  TF
-    python MVHSC.py --orth_x T --orth_y F --proj_x T --proj_y T --file_name $filename --seed_num "$num" --hypergrad_method "forward"
-    python MVHSC.py --orth_x T --orth_y F --proj_x T --proj_y F --file_name $filename --seed_num "$num" --hypergrad_method "forward"
-    python MVHSC.py --orth_x T --orth_y F --proj_x F --proj_y T --file_name $filename --seed_num "$num" --hypergrad_method "forward"
-    python MVHSC.py --orth_x T --orth_y F --proj_x F --proj_y F --file_name $filename --seed_num "$num" --hypergrad_method "forward"
+    python MVHSC.py --orth_x T --orth_y F --proj_x T --proj_y T --file_name $filename --seed_num "$seed_num" --hypergrad_method "forward"
+    python MVHSC.py --orth_x T --orth_y F --proj_x T --proj_y F --file_name $filename --seed_num "$seed_num" --hypergrad_method "forward"
+    python MVHSC.py --orth_x T --orth_y F --proj_x F --proj_y T --file_name $filename --seed_num "$seed_num" --hypergrad_method "forward"
+    python MVHSC.py --orth_x T --orth_y F --proj_x F --proj_y F --file_name $filename --seed_num "$seed_num" --hypergrad_method "forward"
   done
 }
 test_orth_proj_2

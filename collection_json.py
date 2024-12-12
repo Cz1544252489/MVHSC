@@ -2,15 +2,20 @@ import os
 import json
 import pandas as pd
 
+# 指定子文件夹名称
+subfolder_name = "logs2"  # 替换为实际子文件夹名称
+output_file = "logs2_data.tsv"
+
 # 要提取的字段和嵌套字段
 fields = [
-    "hypergrad_method", "seed_num", "proj_x", "proj_y", 
-    "orth_x", "orth_y", ("best_ul_acc", 0), ("best_ul_acc", 1), 
+    "hypergrad_method", "seed_num", "proj_x", "proj_y",
+    "orth_x", "orth_y", ("best_ul_acc", 0), ("best_ul_acc", 1),
     ("best_ul_nmi", 0), ("best_ul_nmi", 1)
 ]
 
-# 获取当前目录中的所有 JSON 文件
-json_files = [f for f in os.listdir('logs2') if f.endswith('.json')]
+# 获取子文件夹中的所有 JSON 文件
+subfolder_path = os.path.join(os.getcwd(), subfolder_name)
+json_files = [os.path.join(subfolder_path, f) for f in os.listdir(subfolder_path) if f.endswith('.json')]
 
 # 用于存储提取的数据
 data = []
@@ -35,7 +40,6 @@ for file in json_files:
 # 将数据存储到 DataFrame 中
 df = pd.DataFrame(data)
 
-# 保存为 CSV 或输出为行排列的格式
-output_file = "logs2/extracted_data.csv"
-df.to_csv(output_file, index=False)
+# 保存为制表符分隔的文件
+df.to_csv(output_file, index=False, sep='\t')
 print(f"Data has been extracted and saved to {output_file}")
