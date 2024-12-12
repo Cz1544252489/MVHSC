@@ -67,6 +67,8 @@ class data_importation:
         self.data0 = self.get_data0()
         self.data = self.get_data()
         np.random.seed(S["seed_num"])
+        self.dataset_link = "http://mlg.ucd.ie/files/datasets/3sources.zip"
+        # self.download_and_extract_zip(self.dataset_link, self.root_path)
 
     @staticmethod
     def download_and_extract_zip(url, extract_to):
@@ -868,6 +870,8 @@ def parser():
     # 数据集导入以及计算的基本设置
     parser.add_argument('--root_path', type=str, default="./3sources",
                         help = "数据集的根目录")
+    parser.add_argument('--download', type=str2bool, default=False,
+                        help = "是否下载数据集")
     parser.add_argument('--device_set', type=str2bool, default=False,
                         help = "True 默认使用gpu, cuda或者mps，False 直接使用cpu")
     parser.add_argument('--view_num', type=int, choices=[2,3], default=2,
