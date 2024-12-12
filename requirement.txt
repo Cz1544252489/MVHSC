@@ -1,5 +1,4 @@
-pytorch
-pandas
+requests
 scipy
 pandas
 numpy
