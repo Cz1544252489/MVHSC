@@ -425,19 +425,19 @@ class evaluation:
     def record(result, type:Literal["UL", "LL"], **kwargs):
         match type:
             case "UL":
-                result["ul_acc"].append(kwargs["acc"])
+                # result["ul_acc"].append(kwargs["acc"])
                 result["ul_val"].append(kwargs["val"])
-                result["ul_nmi"].append(kwargs["nmi"])
-                result["ul_ari"].append(kwargs["ari"])
-                result["ul_f1"].append(kwargs["f1"])
+                # result["ul_nmi"].append(kwargs["nmi"])
+                # result["ul_ari"].append(kwargs["ari"])
+                # result["ul_f1"].append(kwargs["f1"])
                 result["norm_grad_ul"].append(kwargs["grad"])
 
             case "LL":
-                result["ll_acc"].append(kwargs["acc"])
+                # result["ll_acc"].append(kwargs["acc"])
                 result["ll_val"].append(kwargs["val"])
-                result["ll_nmi"].append(kwargs["nmi"])
-                result["ll_ari"].append(kwargs["ari"])
-                result["ll_f1"].append(kwargs["f1"])
+                # result["ll_nmi"].append(kwargs["nmi"])
+                # result["ll_ari"].append(kwargs["ari"])
+                # result["ll_f1"].append(kwargs["f1"])
                 result["norm_grad_ll"].append(kwargs["grad"])
         return result
 
@@ -767,16 +767,14 @@ class iteration:
         match type:
             case "x":
                 x = self.x.cpu()
-                ul_acc, ul_nmi, ul_ari, ul_f1 = self.EV.assess(x.numpy())
+                # ul_acc, ul_nmi, ul_ari, ul_f1 = self.EV.assess(x.numpy())
                 norm_grad_x = torch.linalg.norm(self.grad_x, ord=2)
-                self.EV.record(self.result,"UL", val=self.ul_val.item(), grad=norm_grad_x.item(),
-                               acc=ul_acc, nmi=ul_nmi, ari=ul_ari, f1=ul_f1)
+                self.EV.record(self.result,"UL", val=self.ul_val.item(), grad=norm_grad_x.item())
             case "y":
                 norm_grad_ll = torch.linalg.norm(self.grad_y, ord=2)
                 y = self.y.cpu()
-                ll_acc, ll_nmi, ll_ari, ll_f1 = self.EV.assess(y.numpy())
-                self.EV.record(self.result, "LL", val=0, grad=norm_grad_ll.item(),
-                               acc=ll_acc, nmi=ll_nmi, ari=ll_ari, f1=ll_f1)
+                # ll_acc, ll_nmi, ll_ari, ll_f1 = self.EV.assess(y.numpy())
+                self.EV.record(self.result, "LL", val=self.ll_val, grad=norm_grad_ll.item())
 
     def inner_loop_forward(self):
         # 使用向前传播方法计算超梯度
@@ -794,7 +792,7 @@ class iteration:
 
         self.get_gradient()
         self.grad_x = self.S["lambda_x"] * self.Proj(self.grad["F_x"] + self.Z @ self.grad["f_x"], self.x, self.S["proj_x"])
-
+        self.ul_val = self.UL()
         self.record("y")
 
     def inner_loop_backward(self):
@@ -813,6 +811,7 @@ class iteration:
             self.grad_x = self.grad_x + self.cl[f"{epoch+1}_B"].T @ self.cl[f"{epoch+1}_alpha"]
             self.cl[f"{epoch}_alpha"] = self.cl[f"{epoch+1}_A"].T @ self.cl[f"{epoch+1}_alpha"]
 
+        self.ul_val = self.UL()
         self.record("y")
 
     def outer_loop(self):
@@ -834,7 +833,7 @@ class iteration:
             self.outer_loop()
             self.result["time_elapsed"].append(time.time() - start_time)
 
-        self.record_best()
+        # self.record_best()
         self.EV.use_result(self.result,'dump',self.EV.result_file_name())
         if self.S["result_output"] != "none":
             data = self.EV.use_result({}, "load", self.EV.result_file_name())
