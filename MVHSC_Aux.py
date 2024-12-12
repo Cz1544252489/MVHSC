@@ -68,7 +68,8 @@ class data_importation:
         self.data = self.get_data()
         np.random.seed(S["seed_num"])
         self.dataset_link = "http://mlg.ucd.ie/files/datasets/3sources.zip"
-        # self.download_and_extract_zip(self.dataset_link, self.root_path)
+        if self.S["download"]:
+            self.download_and_extract_zip(self.dataset_link, self.root_path)
 
     @staticmethod
     def download_and_extract_zip(url, extract_to):
