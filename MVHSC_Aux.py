@@ -621,8 +621,8 @@ class iteration:
         self.x = IN.x
         self.y = IN.y
         self.Theta = IN.Theta["LL"]
-        self.UL = self.upper_level(self.x, self.y, self.S["lambda_r"])
-        self.LL = self.lower_level(self.x, self.y, self.S["lambda_r"], self.Theta)
+        self.UL = self.upper_level(self.S["lambda_r"])
+        self.LL = self.lower_level(self.S["lambda_r"], self.Theta)
         self.O = torch.zeros(self.x.shape[0], dtype=torch.float32, device= self.device)
         self.Z = self.O
         self.I = torch.eye(self.x.shape[0], dtype=torch.float32, device= self.device)
@@ -635,7 +635,7 @@ class iteration:
         self.clip_choose()
         self.cl = {}
         self.grad = {}
-        self.hessian = {}
+        self.hess = {}
 
     def clip_choose(self):
         self.clip_gaussian = lambda x: math.exp(-x**2)
@@ -676,42 +676,49 @@ class iteration:
             case "none":
                 self.beta = self.clip
 
-    def syn(self, var:Literal["x","y"]):
-        with torch.no_grad():
-            match var:
-                case "x":
-                    self.LL.x.copy_(self.x)
-                    self.UL.x.copy_(self.x)
-                case "y":
-                    self.LL.y.copy_(self.y)
-                    self.UL.y.copy_(self.y)
-
-    class lower_level(nn.Module):
-        def __init__(self, x, y, lambda_r, Theta):
-            super().__init__()
-            self.x = nn.Parameter(x)
-            self.y = nn.Parameter(y)
+    class lower_level():
+        def __init__(self,lambda_r, Theta):
             self.lambda_r = lambda_r
             self.Theta = Theta
+            self.grad = {}
+            self.hess = {}
 
-        def forward(self):
-            term1 = torch.trace(self.y.T @ self.Theta @ self.y)
-            term2 = self.lambda_r * torch.trace(self.y @ self.y.T @ self.x @ self.x.T)
-            # regularization = 1 * torch.norm(self.y, p=2)
-            # print((term1+term2)/regularization)
-            return (term1 + term2 )# - regularization)
+        def f(self, x, y):
+            term1 = torch.trace(y.T @ self.Theta @ y)
+            term2 = self.lambda_r * torch.trace(y @ y.T @ x @ x.T)
+            return term1 + term2
 
-    class upper_level(nn.Module):
-        def __init__(self, x, y, lambda_r):
-            super().__init__()
-            self.x = nn.Parameter(x)
-            self.y = nn.Parameter(y)
+        def grad_f(self, x, y):
+            self.grad["f_x"] = 2 * self.lambda_r * y @ y.T @ x
+            self.grad["f_y"] = 2 * (self.Theta + self.lambda_r * x @ x.T) @ y
+            return self.grad
+
+        def hess_f(self, x, y):
+            self.hess["f_xx"] = 2 * self.lambda_r * y @ y.T
+            self.hess["f_xy"] = 2 * self.lambda_r * (y @ x.T + x @ y.T)  # 混合二阶偏导
+            self.hess["f_yy"] = 2 * self.Theta + 2 * self.lambda_r * x @ x.T
+            return self.hess
+
+    class upper_level():
+        def __init__(self, lambda_r):
             self.lambda_r = lambda_r
+            self.grad = {}
+            self.hess = {}
 
-        def forward(self):
-            term1 = self.lambda_r * torch.trace(self.y @ self.y.T @ self.x @ self.x.T)
-            # term2 = 0.1 * torch.linalg.norm(self.x)
-            return  (term1 )
+        def F(self, x, y):
+            term1 = self.lambda_r * torch.trace(y @ y.T @ x @ x.T)
+            return term1
+
+        def grad_F(self, x, y):
+            self.grad["F_x"] = 2 * self.lambda_r * y @ y.T @ x
+            self.grad["F_y"] = 2 * self.lambda_r * x @ x.T @ y
+            return self.grad
+
+        def hess_F(self, x, y):
+            self.hess["F_xx"] = 2 * self.lambda_r * y @ y.T
+            self.hess["F_xy"] = 2 * self.lambda_r * (y @ x.T + x @ y.T)  # 混合二阶偏导
+            self.hess["F_yy"] = 2 * self.lambda_r * x @ x.T
+            return self.hess
 
     def update_value(self, x, grad, method = False):
         x = x + self.S["learning_rate"] * grad
@@ -742,39 +749,31 @@ class iteration:
             return vector
 
     def get_gradient(self):
-        self.grad["f_x"] = 2 * self.S["lambda_r"] * self.y @ self.y.T @ self.x
-        self.grad["f_y"] = 2 * (self.Theta + self.S["lambda_r"] * self.x @ self.x.T) @ self.y
-        self.grad["F_x"] = self.grad["f_x"]
-        self.grad["F_y"] = 2 * self.S["lambda_r"] * self.x @ self.x.T @ self.y
+        self.grad.update(self.UL.grad_F(self.x, self.y))
+        self.grad.update(self.LL.grad_f(self.x, self.y))
+
+    def get_hessian(self):
+        self.hess.update(self.UL.hess_F(self.x, self.y))
+        self.hess.update(self.LL.hess_f(self.x, self.y))
 
     def grad_aggregation(self, epoch):
         self.p_u = self.S["mu"] * self.alpha(epoch) * self.S["s_u"]
         self.p_l = (1 - self.S["mu"]) * self.beta(epoch) * self.S["s_l"]
         self.grad_y = self.Proj(self.p_u * self.grad["F_y"] + self.p_l * self.grad["f_y"], self.y, self.S["proj_y"])
 
-    def get_hessian(self):
-        self.hessian["Ff_xy"] = 2 * self.S["lambda_r"] * (self.y @ self.x.T + self.x @ self.y.T)  # 混合二阶偏导
-        self.hessian["F_yy"] = 2 * self.S["lambda_r"] * self.x @ self.x.T
-        self.hessian["f_yy"] = 2 * self.Theta + self.hessian["F_yy"]
-        self.hessian["Ff_xx"] = 2 * self.S["lambda_r"] * self.y @ self.y.T
-
     def forward_method(self):
-        A = (self.p_u + self.p_l) * self.hessian["Ff_xy"]
-        B = self.I + (self.p_u * self.hessian["F_yy"] + self.p_l * self.hessian["f_yy"])
+        A = (self.p_u + self.p_l) * self.hess["F_xy"]
+        B = self.I + (self.p_u * self.hess["F_yy"] + self.p_l * self.hess["f_yy"])
         self.Z = B @ self.Z + A
 
     def record(self, type:str=Literal["x","y"]):
         match type:
             case "x":
-                x = self.x.cpu()
-                # ul_acc, ul_nmi, ul_ari, ul_f1 = self.EV.assess(x.numpy())
                 norm_grad_x = torch.linalg.norm(self.grad_x, ord=2)
                 self.EV.record(self.result,"UL", val=self.ul_val.item(), grad=norm_grad_x.item())
             case "y":
                 norm_grad_ll = torch.linalg.norm(self.grad_y, ord=2)
-                y = self.y.cpu()
-                # ll_acc, ll_nmi, ll_ari, ll_f1 = self.EV.assess(y.numpy())
-                self.EV.record(self.result, "LL", val=self.ll_val, grad=norm_grad_ll.item())
+                self.EV.record(self.result, "LL", val=self.ll_val.item(), grad=norm_grad_ll.item())
 
     def inner_loop_forward(self):
         # 使用向前传播方法计算超梯度
@@ -792,17 +791,20 @@ class iteration:
 
         self.get_gradient()
         self.grad_x = self.S["lambda_x"] * self.Proj(self.grad["F_x"] + self.Z @ self.grad["f_x"], self.x, self.S["proj_x"])
-        self.ul_val = self.UL()
-        self.record("y")
 
     def inner_loop_backward(self):
         for epoch in range(self.S["max_ll_epochs"]):
             self.get_gradient()
-            self.grad_aggregation(epoch)
-            self.get_hessian()
+            if self.S["opt_method"] == "BDA":
+                self.grad_aggregation(epoch)
+                self.get_hessian()
+            else:
+                self.grad_y = self.grad["f_y"]
             self.y = self.update_value(self.y, self.grad_y, self.S["orth_y"])
-            self.cl[f"{epoch+1}_B"] = self.p_u * self.hessian["Ff_xy"] + self.p_l * self.hessian["Ff_xx"]
-            self.cl[f"{epoch+1}_A"] = torch.eye(self.y.shape[0], device= self.device) + self.p_u * self.hessian["F_yy"] + self.p_l * self.hessian["Ff_xy"]
+            self.ll_val = self.LL.f(self.x, self.y)
+            self.record("y")
+            self.cl[f"{epoch+1}_B"] = self.p_u * self.hess["F_xy"] + self.p_l * self.hess["F_xx"]
+            self.cl[f"{epoch+1}_A"] = torch.eye(self.y.shape[0], device= self.device) + self.p_u * self.hess["F_yy"] + self.p_l * self.hess["F_xy"]
 
         self.get_gradient()
         self.grad_x = 0
@@ -811,16 +813,13 @@ class iteration:
             self.grad_x = self.grad_x + self.cl[f"{epoch+1}_B"].T @ self.cl[f"{epoch+1}_alpha"]
             self.cl[f"{epoch}_alpha"] = self.cl[f"{epoch+1}_A"].T @ self.cl[f"{epoch+1}_alpha"]
 
-        self.ul_val = self.UL()
-        self.record("y")
 
     def outer_loop(self):
         for epoch in range(self.S["max_ul_epochs"]):
             self.x = self.update_value(self.x, self.grad_x, self.S["orth_x"])
-            self.ul_val = self.UL()
-            self.update_lambda_r()
+            self.ul_val = self.UL.F(self.x, self.y)
+            self.record("x")
 
-        self.record("x")
 
     def run(self):
         start_time = time.time()
@@ -882,6 +881,9 @@ def parser():
                         help = "随机种子数，仅数据生成时超图的超边权重处随机。")
 
     # 计算超梯度的方法
+    parser.add_argument('--opt_method', type=str, choices=["BDA", "RHG", "IHG", "T-RHG", "FMD", "ALT"],
+                        help = "对比的优化方法: 'BDA'为双层梯度聚合, 'RHG'为反向超参梯度法, 'IHG'为隐函数超参梯度法, "
+                               "'T-RHG'为截断反向超参梯度法, 'FHG'为向前超参梯度法, 'ALT'为交替法。")
     parser.add_argument('--hypergrad_method', type=str, choices=["backward", "forward"],
                         default="backward", help="计算超梯度的方法， backward反向传播 forward正向传播")
 
@@ -948,7 +950,7 @@ def parser():
                         help = "是否在结果文件中添加上时间戳，默认 否")
     parser.add_argument('--file_name', type=str, default="result",
                         help = "输出IT.result中的结果到该文件中，使用json格式，此处不添加扩展名")
-    parser.add_argument('--plot_content',type=str, nargs='+', default=["acc", "grad"],
+    parser.add_argument('--plot_content',type=str, nargs='+', default=["val", "grad"],
                         help="一个列表，包含以下字符串的任意多个, 'grad','val','acc','nmi','ari','f1'")
     parser.add_argument('--figure_name', type=str, default="figure1.png",
                         help = "保存图片为文件的时候，图片的文件名")
