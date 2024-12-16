@@ -620,9 +620,10 @@ class iteration:
         self.device = EV.device
         self.x = IN.x
         self.y = IN.y
-        self.Theta = IN.Theta["LL"]
+        self.Theta_y = IN.Theta["LL"]
+        self.Theta_x = IN.Theta["UL"]
         self.UL = self.upper_level(self.S["lambda_r"])
-        self.LL = self.lower_level(self.S["lambda_r"], self.Theta)
+        self.LL = self.lower_level(self.S["lambda_r"], self.Theta_y)
         self.O = torch.zeros(self.x.shape[0], dtype=torch.float32, device= self.device)
         self.Z = self.O
         self.I = torch.eye(self.x.shape[0], dtype=torch.float32, device= self.device)
@@ -636,6 +637,9 @@ class iteration:
         self.cl = {}
         self.grad = {}
         self.hess = {}
+        if self.S["opt_method"] == "ALT":
+            self.S["max_ll_epochs"] = 1
+            self.S["max_ul_epochs"] = 1
 
     def clip_choose(self):
         self.clip_gaussian = lambda x: math.exp(-x**2)
@@ -677,26 +681,26 @@ class iteration:
                 self.beta = self.clip
 
     class lower_level():
-        def __init__(self,lambda_r, Theta):
+        def __init__(self,lambda_r, Theta_y):
             self.lambda_r = lambda_r
-            self.Theta = Theta
+            self.Theta_y = Theta_y
             self.grad = {}
             self.hess = {}
 
         def f(self, x, y):
-            term1 = torch.trace(y.T @ self.Theta @ y)
+            term1 = torch.trace(y.T @ self.Theta_y @ y)
             term2 = self.lambda_r * torch.trace(y @ y.T @ x @ x.T)
             return term1 + term2
 
         def grad_f(self, x, y):
             self.grad["f_x"] = 2 * self.lambda_r * y @ y.T @ x
-            self.grad["f_y"] = 2 * (self.Theta + self.lambda_r * x @ x.T) @ y
+            self.grad["f_y"] = 2 * (self.Theta_y + self.lambda_r * x @ x.T) @ y
             return self.grad
 
         def hess_f(self, x, y):
             self.hess["f_xx"] = 2 * self.lambda_r * y @ y.T
             self.hess["f_xy"] = 2 * self.lambda_r * (y @ x.T + x @ y.T)  # 混合二阶偏导
-            self.hess["f_yy"] = 2 * self.Theta + 2 * self.lambda_r * x @ x.T
+            self.hess["f_yy"] = 2 * self.Theta_y + 2 * self.lambda_r * x @ x.T
             return self.hess
 
     class upper_level():
@@ -743,7 +747,7 @@ class iteration:
 
     def Proj(self, vector, y, type:bool):
         if type:
-            Proj_LL = torch.eye(y.shape[0], device=self.device) - y @ y.T
+            Proj_LL = self.I - y @ y.T
             return Proj_LL @ vector
         else:
             return vector
@@ -790,21 +794,19 @@ class iteration:
             self.forward_method()
 
         self.get_gradient()
-        self.grad_x = self.S["lambda_x"] * self.Proj(self.grad["F_x"] + self.Z @ self.grad["f_x"], self.x, self.S["proj_x"])
+        self.grad_x = self.Proj(self.S["lambda_x"] * self.grad["F_x"] + self.Z @ self.grad["f_x"], self.x, self.S["proj_x"])
 
-    def inner_loop_backward(self):
+    def inner_loop_BDA_backward(self):
         for epoch in range(self.S["max_ll_epochs"]):
             self.get_gradient()
-            if self.S["opt_method"] == "BDA":
-                self.grad_aggregation(epoch)
-                self.get_hessian()
-            else:
-                self.grad_y = self.grad["f_y"]
+            self.grad_aggregation(epoch)
+            self.get_hessian()
+            self.cl[f"{epoch + 1}_B"] = self.p_u * self.hess["F_xy"] + self.p_l * self.hess["F_xx"]
+            self.cl[f"{epoch + 1}_A"] = -self.I + self.p_u * self.hess[
+                "F_yy"] + self.p_l * self.hess["F_xy"]
             self.y = self.update_value(self.y, self.grad_y, self.S["orth_y"])
             self.ll_val = self.LL.f(self.x, self.y)
             self.record("y")
-            self.cl[f"{epoch+1}_B"] = self.p_u * self.hess["F_xy"] + self.p_l * self.hess["F_xx"]
-            self.cl[f"{epoch+1}_A"] = torch.eye(self.y.shape[0], device= self.device) + self.p_u * self.hess["F_yy"] + self.p_l * self.hess["F_xy"]
 
         self.get_gradient()
         self.grad_x = 0
@@ -813,22 +815,33 @@ class iteration:
             self.grad_x = self.grad_x + self.cl[f"{epoch+1}_B"].T @ self.cl[f"{epoch+1}_alpha"]
             self.cl[f"{epoch}_alpha"] = self.cl[f"{epoch+1}_A"].T @ self.cl[f"{epoch+1}_alpha"]
 
+    def inner_loop_ALT(self):
+        for epoch in range(self.S["max_ll_epochs"]):
+            self.get_gradient()
+            self.grad_y = self.Proj(self.grad["f_y"], self.y, self.S["proj_y"])
+            self.y = self.update_value(self.y, self.grad_y, self.S["orth_y"])
+            self.ll_val = self.LL.f(self.x, self.y)
+            self.record("y")
+
+        self.get_gradient()
+        self.grad_x = self.Proj(self.grad["F_x"], self.x, self.S["proj_x"])
 
     def outer_loop(self):
         for epoch in range(self.S["max_ul_epochs"]):
             self.x = self.update_value(self.x, self.grad_x, self.S["orth_x"])
             self.ul_val = self.UL.F(self.x, self.y)
             self.record("x")
+            # val = torch.trace(self.x.T @ ( self.I - self.Theta_x) @ self.x)
 
 
     def run(self):
         start_time = time.time()
         for epoch in range(self.S["Epochs"]):
-            match self.S["hypergrad_method"]:
-                case "forward":
-                    self.inner_loop_forward()
-                case "backward":
-                    self.inner_loop_backward()
+            match self.S["opt_method"]:
+                case "BDA":
+                    self.inner_loop_BDA_backward()
+                case "ALT":
+                    self.inner_loop_ALT()
             self.outer_loop()
             self.result["time_elapsed"].append(time.time() - start_time)
 
@@ -840,7 +853,7 @@ class iteration:
 
     def update_lambda_r(self):
         if self.S["update_lambda_r"]:
-            val = torch.trace(self.x.T @ (torch.eye(self.x.shape[0], device= self.device) - self.x @ self.x.T) @ self.x)
+            val = torch.trace(self.x.T @ (self.I - self.x @ self.x.T) @ self.x)
             # print(val.item())
             if val <= self.S["epsilon"]:
                 self.S["lambda_r"]= self.S["lambda_r"]/2
