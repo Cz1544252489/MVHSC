@@ -833,6 +833,22 @@ class iteration:
             self.record("x")
             # val = torch.trace(self.x.T @ ( self.I - self.Theta_x) @ self.x)
 
+    def loop1(self):
+        for epoch in range(self.S["L1"]):
+            self.grad_y = self.Proj(self.grad["f_y"], self.y, self.S["proj_y"])
+            self.y = self.update_value(self.y, self.grad_y, self.S["orth_y"])
+            self.ll_val = self.LL.f(self.x, self.y)
+
+    def loop2(self):
+        for epoch in range(self.S["L2"]):
+            self.grad_x = self.Proj(self.grad["F_x"], self.x, self.S["proj_x"])
+            self.x = self.update_value(self.x, self.grad_x, self.S["orth_x"])
+            self.ul_val = self.UL.F(self.x, self.y)
+
+    def loop0(self):
+        for epoch in range(self.S["L0"]):
+            self.loop1()
+            self.loop2()
 
     def run(self):
         start_time = time.time()
@@ -895,7 +911,7 @@ def parser():
 
     # 计算超梯度的方法
     parser.add_argument('--opt_method', type=str, choices=["BDA", "RHG", "IHG", "T-RHG", "FMD", "ALT"],
-                        help = "对比的优化方法: 'BDA'为双层梯度聚合, 'RHG'为反向超参梯度法, 'IHG'为隐函数超参梯度法, "
+                        default= "BDA", help = "对比的优化方法: 'BDA'为双层梯度聚合, 'RHG'为反向超参梯度法, 'IHG'为隐函数超参梯度法, "
                                "'T-RHG'为截断反向超参梯度法, 'FHG'为向前超参梯度法, 'ALT'为交替法。")
     parser.add_argument('--hypergrad_method', type=str, choices=["backward", "forward"],
                         default="backward", help="计算超梯度的方法， backward反向传播 forward正向传播")
