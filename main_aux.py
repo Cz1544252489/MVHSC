@@ -39,7 +39,7 @@ class data_importation:
             case "3sources":
                 self.sources = ['bbc', 'guardian', 'reuters']
                 self.view_num = 2
-                self.view = 2
+                self.view = 0
                 self.file_types = ['mtx', 'terms', 'docs']
                 self.cluster_num = 6
                 self.label_mapping = {
@@ -98,7 +98,6 @@ class data_importation:
                 for id in ids.split(','):
                     data_list.append({'category': category, 'id': int(id)})
 
-        # 创建DataFrame
         df = pd.DataFrame(data_list)
         return df
 
@@ -218,4 +217,57 @@ class data_importation:
         return Theta, F["UL"], F["LL"]
 
 
+class iteration:
+    def __init__(self, IN):
+        self.device = IN.device
+        self.x = IN.x
+        self.y = IN.y
+        self.Theta_y = IN.Theta["LL"]
+        self.Theta_x = IN.Theta["UL"]
+        self.O = torch.zeros(self.x.shape[0], dtype=torch.float32, device=self.device)
+        self.I = torch.eye(self.x.shape[0], dtype=torch.float32, device=self.device)
+
+    class lower_level():
+        def __init__(self, lam, Theta_y):
+            self.lam = lam
+            self.Theta_y = Theta_y
+            self.grad = {}
+            self.hess = {}
+
+        def f(self, x, y):
+            term1 = torch.trace(y.T @ self.Theta_y @ y)
+            term2 = self.lam * torch.trace(y @ y.T @ x @ x.T)
+            return term1 + term2
+
+        def grad_f(self, x, y):
+            self.grad["f_x"] = 2 * self.lam * y @ y.T @ x
+            self.grad["f_y"] = 2 * (self.Theta_y + self.lam * x @ x.T) @ y
+            return self.grad
+
+        def hess_f(self, x, y):
+            self.hess["f_xx"] = 2 * self.lam * y @ y.T
+            self.hess["f_xy"] = 2 * self.lam * (y @ x.T + x @ y.T)  # 混合二阶偏导
+            self.hess["f_yy"] = 2 * self.Theta_y + 2 * self.lam * x @ x.T
+            return self.hess
+
+    class upper_level():
+        def __init__(self, lam):
+            self.lam = lam
+            self.grad = {}
+            self.hess = {}
+
+        def F(self, x, y):
+            term1 = self.lam * torch.trace(y @ y.T @ x @ x.T)
+            return term1
+
+        def grad_F(self, x, y):
+            self.grad["F_x"] = 2 * self.lam * y @ y.T @ x
+            self.grad["F_y"] = 2 * self.lam * x @ x.T @ y
+            return self.grad
+
+        def hess_F(self, x, y):
+            self.hess["F_xx"] = 2 * self.lam * y @ y.T
+            self.hess["F_xy"] = 2 * self.lam * (y @ x.T + x @ y.T)  # 混合二阶偏导
+            self.hess["F_yy"] = 2 * self.lam * x @ x.T
+            return self.hess
 
