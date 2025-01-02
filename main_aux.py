@@ -227,7 +227,19 @@ class iteration:
         self.O = torch.zeros(self.x.shape[0], dtype=torch.float32, device=self.device)
         self.I = torch.eye(self.x.shape[0], dtype=torch.float32, device=self.device)
 
-    class lower_level():
+        self.UL = None
+        self.LL = None
+        self.lam = None
+        self.learning_rate = None
+        self.pre_definition()
+
+    def pre_definition(self):
+        self.lam = 0.01
+        self.learning_rate = 0.01
+        self.UL = self.upper_level(self.lam)
+        self.LL = self.lower_level(self.lam, self.Theta_y)
+
+    class lower_level:
         def __init__(self, lam, Theta_y):
             self.lam = lam
             self.Theta_y = Theta_y
@@ -239,18 +251,18 @@ class iteration:
             term2 = self.lam * torch.trace(y @ y.T @ x @ x.T)
             return term1 + term2
 
-        def grad_f(self, x, y):
-            self.grad["f_x"] = 2 * self.lam * y @ y.T @ x
-            self.grad["f_y"] = 2 * (self.Theta_y + self.lam * x @ x.T) @ y
+        def grad(self, x, y):
+            self.grad["x"] = 2 * self.lam * y @ y.T @ x
+            self.grad["y"] = 2 * (self.Theta_y + self.lam * x @ x.T) @ y
             return self.grad
 
-        def hess_f(self, x, y):
-            self.hess["f_xx"] = 2 * self.lam * y @ y.T
-            self.hess["f_xy"] = 2 * self.lam * (y @ x.T + x @ y.T)  # 混合二阶偏导
-            self.hess["f_yy"] = 2 * self.Theta_y + 2 * self.lam * x @ x.T
+        def hess(self, x, y):
+            self.hess["xx"] = 2 * self.lam * y @ y.T
+            self.hess["xy"] = 2 * self.lam * (y @ x.T + x @ y.T)  # 混合二阶偏导
+            self.hess["yy"] = 2 * self.Theta_y + 2 * self.lam * x @ x.T
             return self.hess
 
-    class upper_level():
+    class upper_level:
         def __init__(self, lam):
             self.lam = lam
             self.grad = {}
@@ -260,14 +272,25 @@ class iteration:
             term1 = self.lam * torch.trace(y @ y.T @ x @ x.T)
             return term1
 
-        def grad_F(self, x, y):
-            self.grad["F_x"] = 2 * self.lam * y @ y.T @ x
-            self.grad["F_y"] = 2 * self.lam * x @ x.T @ y
+        def grad(self, x, y):
+            self.grad["x"] = 2 * self.lam * y @ y.T @ x
+            self.grad["y"] = 2 * self.lam * x @ x.T @ y
             return self.grad
 
-        def hess_F(self, x, y):
-            self.hess["F_xx"] = 2 * self.lam * y @ y.T
-            self.hess["F_xy"] = 2 * self.lam * (y @ x.T + x @ y.T)  # 混合二阶偏导
-            self.hess["F_yy"] = 2 * self.lam * x @ x.T
+        def hess(self, x, y):
+            self.hess["xx"] = 2 * self.lam * y @ y.T
+            self.hess["xy"] = 2 * self.lam * (y @ x.T + x @ y.T)  # 混合二阶偏导
+            self.hess["yy"] = 2 * self.lam * x @ x.T
             return self.hess
+
+    def update_value(self, x, grad, type:bool=False):
+        x = x + self.learning_rate * grad
+        if type:
+            x, _ = torch.linalg.qr(x, mode="reduced")
+        return x
+
+    def proj(self, vector, y, type:bool=False):
+        if type:
+            vector = (self.I-y@y.T) @ vector
+        return vector
 
