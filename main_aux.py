@@ -1,6 +1,8 @@
 # Data importation
+import json
 import os
 import zipfile
+from datetime import datetime
 from typing import Literal
 
 import numpy as np
@@ -11,6 +13,7 @@ from scipy.io import mmread
 from scipy.sparse import csr_matrix
 from scipy.sparse.linalg import eigsh
 from sklearn.metrics.pairwise import cosine_similarity
+from socks import set_self_blocking
 
 
 class data_importation:
@@ -213,7 +216,10 @@ class data_importation:
                 for i,j,k in self.loop_mapping[self.view:self.view+2]:
                     Theta[f"{map[l]}"], F[f"{map[l]}"] = self.get_Theta_and_F(
                         data[f"{sources[k]}_mtx_{sources[i]}_{sources[j]}"])
+                    Theta[f"{map[l]}"] = torch.tensor(Theta[f"{map[l]}"])
+                    F[f"{map[l]}"] = torch.tensor(F[f"{map[l]}"])
                     l += 1
+
         return Theta, F["UL"], F["LL"]
 
 
@@ -232,32 +238,67 @@ class iteration:
         self.lam = None
         self.learning_rate = None
         self.grad = None
+        self.loop0 = None
+        self.loop1 = None
+        self.loop2 = None
+        self.proj_x = None
+        self.proj_y = None
+        self.orth_x = None
+        self.orth_y = None
+        self.log_filename = None
+        self.log_data = {}
+        self.alpha = None
+        self.beta = None
+        self.mu = None
+        self.s_u = None
+        self.s_l = None
+        self.Z = None
+        self.cl = {}
         self.pre_definition()
 
     def pre_definition(self):
-        self.lam = 0.01
-        self.learning_rate = 0.01
+        self.lam = 1
+        self.learning_rate = 0.1
         self.UL = self.upper_level(self.lam)
         self.LL = self.lower_level(self.lam, self.Theta_y)
+        self.proj_x = True
+        self.proj_y = True
+        self.orth_x = True
+        self.orth_y = True
+        self.alpha = lambda x:1/(1+x)
+        self.beta = lambda x:1/(1+x)
+        self.mu = 0.5
+        self.s_l = 0.1
+        self.s_u = 0.1
+        self.log_filename = "./logs/test"
+        self.log_data["LL_dval"] = []
+        self.log_data["UL_dval"] = []
+        self.log_data["LL_ngrad_y"] = []
+        self.log_data["UL_ngrad_x"] = []
 
     class lower_level:
         def __init__(self, lam, Theta_y):
             self.lam = lam
             self.Theta_y = Theta_y
+            self.val = None
+            temp = torch.linalg.svd(Theta_y).S
+            self.max_val = torch.topk(temp,6).values.sum() + lam * 6
+            self.dval = None
             self.grad = {}
             self.hess = {}
 
-        def f(self, x, y):
+        def cost(self, x, y):
             term1 = torch.trace(y.T @ self.Theta_y @ y)
             term2 = self.lam * torch.trace(y @ y.T @ x @ x.T)
-            return term1 + term2
+            self.val = term1 + term2
+            self.dval = self.max_val-self.val
 
-        def grad(self, x, y):
+        def ggrad(self, x, y):
             self.grad["x"] = 2 * self.lam * y @ y.T @ x
             self.grad["y"] = 2 * (self.Theta_y + self.lam * x @ x.T) @ y
             return self.grad
 
-        def hess(self, x, y):
+        def ghess(self, x, y):
             self.hess["xx"] = 2 * self.lam * y @ y.T
             self.hess["xy"] = 2 * self.lam * (y @ x.T + x @ y.T)  # 混合二阶偏导
             self.hess["yy"] = 2 * self.Theta_y + 2 * self.lam * x @ x.T
@@ -266,34 +307,103 @@ class iteration:
     class upper_level:
         def __init__(self, lam):
             self.lam = lam
+            self.val = None
+            self.max_val = 6
+            self.dval = None
             self.grad = {}
             self.hess = {}
 
-        def F(self, x, y):
-            term1 = self.lam * torch.trace(y @ y.T @ x @ x.T)
-            return term1
+        def cost(self, x, y):
+            self.val = self.lam * torch.trace(y @ y.T @ x @ x.T)
+            self.dval = self.max_val-self.val
 
-        def grad(self, x, y):
+        def ggrad(self, x, y):
             self.grad["x"] = 2 * self.lam * y @ y.T @ x
             self.grad["y"] = 2 * self.lam * x @ x.T @ y
             return self.grad
 
-        def hess(self, x, y):
+        def ghess(self, x, y):
             self.hess["xx"] = 2 * self.lam * y @ y.T
             self.hess["xy"] = 2 * self.lam * (y @ x.T + x @ y.T)  # 混合二阶偏导
             self.hess["yy"] = 2 * self.lam * x @ x.T
             return self.hess
 
-    def update_value(self, x, grad, type:bool=False):
+    def update_value(self, x, grad, flag:bool=False):
         x = x + self.learning_rate * grad
-        if type:
+        if flag:
             x, _ = torch.linalg.qr(x, mode="reduced")
         return x
 
-    def proj(self, vector, y, type:bool=False):
-        if type:
+    def proj(self, vector, y, flag:bool=False):
+        if flag:
             vector = (self.I-y@y.T) @ vector
         return vector
 
-    def get_gradient(self):
-        self.grad = self.UL.grad(self.x, self.y)
+    def run_as_adm(self):
+        for epoch in range(500):
+            for i in range(1):
+                self.LL.cost(self.x, self.y)
+                self.LL.ggrad(self.x, self.y)
+                self.y = self.update_value(self.y, self.proj(self.LL.grad["y"], self.y, self.proj_y), self.orth_y)
+            for j in range(1):
+                self.UL.cost(self.x, self.y)
+                self.UL.ggrad(self.x, self.y)
+                self.x = self.update_value(self.x, self.proj(self.UL.grad["x"], self.x, self.proj_x), self.orth_x)
+            self.log_data["LL_dval"].append(self.LL.dval.item())
+            self.log_data["UL_dval"].append(self.UL.dval.item())
+            self.log_data["LL_ngrad_y"].append(torch.linalg.norm(self.LL.grad["y"], ord=2).item())
+            self.log_data["UL_ngrad_x"].append(torch.linalg.norm(self.UL.grad["x"], ord=2).item())
+        self.log_result()
+
+    def run_as_bda_forward(self):
+        for epoch in range(100):
+            self.Z = self.O
+            for i in range(5):
+                self.LL.ggrad(self.x, self.y)
+                self.UL.ggrad(self.x, self.y)
+                p_u = self.mu * self.alpha(i) * self.s_u
+                p_l = (1-self.mu) * self.beta(i) * self.s_l
+                grad_y = self.proj(p_u * self.UL.grad["y"] + p_l * self.LL.grad["y"], self.y, self.proj_y)
+                self.y = self.update_value(self.y, grad_y, self.orth_y)
+
+                self.LL.ghess(self.x, self.y)
+                self.UL.ghess(self.x, self.y)
+                A = (p_u + p_l) * self.UL.hess["xy"]
+                B = self.I + (p_u * self.UL.hess["yy"] + p_l * self.LL.hess["yy"])
+                self.Z = B @ self.Z + A
+
+            grad_x = self.proj(self.lam * self.UL.grad["x"] + self.Z @ self.LL.grad["x"], self.x, self.proj_x)
+
+            for j in range(1):
+                self.x = self.update_value(self.x, grad_x, self.orth_x)
+
+            self.LL.cost(self.x, self.y)
+            self.UL.cost(self.x, self.y)
+            self.log_data["LL_dval"].append(self.LL.dval.item())
+            self.log_data["UL_dval"].append(self.UL.dval.item())
+            self.log_data["LL_ngrad_y"].append(torch.linalg.norm(self.LL.grad["y"], ord=2).item())
+            self.log_data["UL_ngrad_x"].append(torch.linalg.norm(self.UL.grad["x"], ord=2).item())
+        self.log_result()
+
+    def run_as_bda_backward(self):
+        for epoch in range(50):
+            for i in range(5):
+                self.LL.ggrad(self.x, self.y)
+                self.UL.ggrad(self.x, self.y)
+                p_u = self.mu * self.alpha(i) * self.s_u
+                p_l = (1-self.mu) * self.beta(i) * self.s_l
+                grad_y = self.proj(p_u * self.UL.grad["y"] + p_l * self.LL.grad["y"], self.y, self.proj_y)
+
+                self.LL.ghess(self.x, self.y)
+                self.UL.ghess(self.x, self.y)
+                self.cl[f"{i+1}_B"] = p_u * self.UL.hess["xy"] + p_l * self.UL.hess["xx"]
+                self.cl[f"{i+1}_A"] = -self.I + p_l * self.UL.hess["yy"] + p_l * self.UL.hess["xy"]
+
+
+
+    def log_result(self):
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        with open(f"{self.log_filename}_{timestamp}.json","w") as file:
+            json.dump(self.log_data, file, indent=4)
+
+
