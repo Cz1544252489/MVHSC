@@ -3,6 +3,6 @@ DI = data_importation()
 IT = iteration(DI)
 
 # IT.run_as_adm()
-IT.run_as_bda()
+IT.run_as_bda_backward()
 
 print("aa")

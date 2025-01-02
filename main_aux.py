@@ -1,6 +1,7 @@
 # Data importation
 import json
 import os
+import time
 import zipfile
 from datetime import datetime
 from typing import Literal
@@ -270,11 +271,15 @@ class iteration:
         self.mu = 0.5
         self.s_l = 0.1
         self.s_u = 0.1
+        self.loop0 = 200
+        self.loop1 = 5
+        self.loop2 = 1
         self.log_filename = "./logs/test"
         self.log_data["LL_dval"] = []
         self.log_data["UL_dval"] = []
         self.log_data["LL_ngrad_y"] = []
         self.log_data["UL_ngrad_x"] = []
+        self.log_data["time_elapsed"] = []
 
     class lower_level:
         def __init__(self, lam, Theta_y):
@@ -340,12 +345,13 @@ class iteration:
         return vector
 
     def run_as_adm(self):
-        for epoch in range(500):
-            for i in range(1):
+        start_time = time.time()
+        for epoch in range(self.loop0):
+            for i in range(self.loop1):
                 self.LL.cost(self.x, self.y)
                 self.LL.ggrad(self.x, self.y)
                 self.y = self.update_value(self.y, self.proj(self.LL.grad["y"], self.y, self.proj_y), self.orth_y)
-            for j in range(1):
+            for j in range(self.loop2):
                 self.UL.cost(self.x, self.y)
                 self.UL.ggrad(self.x, self.y)
                 self.x = self.update_value(self.x, self.proj(self.UL.grad["x"], self.x, self.proj_x), self.orth_x)
@@ -353,12 +359,14 @@ class iteration:
             self.log_data["UL_dval"].append(self.UL.dval.item())
             self.log_data["LL_ngrad_y"].append(torch.linalg.norm(self.LL.grad["y"], ord=2).item())
             self.log_data["UL_ngrad_x"].append(torch.linalg.norm(self.UL.grad["x"], ord=2).item())
+            self.log_data["time_elapsed"].append(time.time()-start_time)
         self.log_result()
 
     def run_as_bda_forward(self):
-        for epoch in range(100):
+        start_time = time.time()
+        for epoch in range(self.loop0):
             self.Z = self.O
-            for i in range(5):
+            for i in range(self.loop1):
                 self.LL.ggrad(self.x, self.y)
                 self.UL.ggrad(self.x, self.y)
                 p_u = self.mu * self.alpha(i) * self.s_u
@@ -374,7 +382,7 @@ class iteration:
 
             grad_x = self.proj(self.lam * self.UL.grad["x"] + self.Z @ self.LL.grad["x"], self.x, self.proj_x)
 
-            for j in range(1):
+            for j in range(self.loop2):
                 self.x = self.update_value(self.x, grad_x, self.orth_x)
 
             self.LL.cost(self.x, self.y)
@@ -383,11 +391,13 @@ class iteration:
             self.log_data["UL_dval"].append(self.UL.dval.item())
             self.log_data["LL_ngrad_y"].append(torch.linalg.norm(self.LL.grad["y"], ord=2).item())
             self.log_data["UL_ngrad_x"].append(torch.linalg.norm(self.UL.grad["x"], ord=2).item())
+            self.log_data["time_elapsed"].append(time.time() - start_time)
         self.log_result()
 
     def run_as_bda_backward(self):
-        for epoch in range(50):
-            for i in range(5):
+        start_time = time.time()
+        for epoch in range(self.loop0):
+            for i in range(self.loop1):
                 self.LL.ggrad(self.x, self.y)
                 self.UL.ggrad(self.x, self.y)
                 p_u = self.mu * self.alpha(i) * self.s_u
@@ -399,7 +409,35 @@ class iteration:
                 self.cl[f"{i+1}_B"] = p_u * self.UL.hess["xy"] + p_l * self.UL.hess["xx"]
                 self.cl[f"{i+1}_A"] = -self.I + p_l * self.UL.hess["yy"] + p_l * self.UL.hess["xy"]
 
+                self.y = self.update_value(self.y, grad_y, self.orth_y)
 
+            grad_x = 0
+            self.UL.ggrad(self.x, self.y)
+            self.cl[f"{self.loop1}_alpha"] = self.UL.grad["x"]
+            for i in range(self.loop1-1,-1,-1):
+                grad_x = grad_x + self.cl[f"{i+1}_B"].T @ self.cl[f"{i+1}_alpha"]
+                self.cl[f"{i}_alpha"] = self.cl[f"{i+1}_A"].T @ self.cl[f"{i+1}_alpha"]
+
+            for j in range(self.loop2):
+                self.x = self.update_value(self.x, grad_x, self.orth_x)
+
+            self.LL.cost(self.x, self.y)
+            self.UL.cost(self.x, self.y)
+            self.log_data["LL_dval"].append(self.LL.dval.item())
+            self.log_data["UL_dval"].append(self.UL.dval.item())
+            self.log_data["LL_ngrad_y"].append(torch.linalg.norm(self.LL.grad["y"], ord=2).item())
+            self.log_data["UL_ngrad_x"].append(torch.linalg.norm(self.UL.grad["x"], ord=2).item())
+            self.log_data["time_elapsed"].append(time.time() - start_time)
+        self.log_result()
+
+    def run(self, method:str):
+        match method:
+            case "adm":
+                self.run_as_adm()
+            case "bda_b":
+                self.run_as_bda_backward()
+            case "bda_f":
+                self.run_as_bda_forward()
 
     def log_result(self):
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
