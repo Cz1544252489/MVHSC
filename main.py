@@ -1,8 +1,13 @@
-from main_aux import data_importation, iteration
-DI = data_importation()
-IT = iteration(DI)
+from main_aux import create_instance, parser
+import torch
+def main():
+    S = parser()
+    ITR = create_instance(S)
+    ITR.run()
 
-# IT.run_as_adm()
-IT.run_as_bda_backward()
+    return ITR
 
-print("aa")
+if __name__ == "__main__":
+    IT = main()
+
+    print("aa")

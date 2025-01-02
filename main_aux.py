@@ -1,4 +1,5 @@
 # Data importation
+import argparse
 import json
 import os
 import time
@@ -18,10 +19,10 @@ from socks import set_self_blocking
 
 
 class data_importation:
-    def __init__(self):
-        self.device = torch.device("cpu")
-        self.dataset_download_or_not = False
-        self.dataset_name = "3sources"
+    def __init__(self, S):
+        self.device = S["device"]
+        self.dataset_download_or_not = S["download_or_not"]
+        self.dataset_name = S["datasets_name"]
         self.root_path = "./"
         self.dataset_link = "http://mlg.ucd.ie/files/datasets/3sources.zip"
         self.view_num = None
@@ -31,19 +32,19 @@ class data_importation:
         self.label_mapping = None
         self.loop_mapping = None
         self.view = None
-        self.pre_data_definition()
+        self.pre_data_definition(S)
         np.random.seed()
         if self.dataset_download_or_not:
             self.download_dataset()
         self.splited_data = self.split_data()
         self.Theta, self.x, self.y = self.inital()
 
-    def pre_data_definition(self):
+    def pre_data_definition(self, S):
         match self.dataset_name:
             case "3sources":
                 self.sources = ['bbc', 'guardian', 'reuters']
-                self.view_num = 2
-                self.view = 0
+                self.view_num = S["view_num"]
+                self.view = S["view"]
                 self.file_types = ['mtx', 'terms', 'docs']
                 self.cluster_num = 6
                 self.label_mapping = {
@@ -225,7 +226,7 @@ class data_importation:
 
 
 class iteration:
-    def __init__(self, IN):
+    def __init__(self, IN, S):
         self.device = IN.device
         self.x = IN.x
         self.y = IN.y
@@ -255,26 +256,32 @@ class iteration:
         self.s_l = None
         self.Z = None
         self.cl = {}
-        self.pre_definition()
+        self.opt_method = None
+        self.hypergrad_method = None
+        self.pre_definition(S)
 
-    def pre_definition(self):
-        self.lam = 1
-        self.learning_rate = 0.1
+    def pre_definition(self, S):
+        self.lam = S["lam"]
+        self.learning_rate = S["lr"]
         self.UL = self.upper_level(self.lam)
         self.LL = self.lower_level(self.lam, self.Theta_y)
-        self.proj_x = True
-        self.proj_y = True
-        self.orth_x = True
-        self.orth_y = True
+        self.proj_x = S["proj_x"]
+        self.proj_y = S["proj_y"]
+        self.orth_x = S["orth_x"]
+        self.orth_y = S["orth_y"]
         self.alpha = lambda x:1/(1+x)
         self.beta = lambda x:1/(1+x)
-        self.mu = 0.5
-        self.s_l = 0.1
-        self.s_u = 0.1
-        self.loop0 = 200
-        self.loop1 = 5
-        self.loop2 = 1
-        self.log_filename = "./logs/test"
+        self.mu = S["mu"]
+        self.s_l = S["s_l"]
+        self.s_u = S["s_u"]
+        self.loop0 = S["loop0"]
+        self.loop1 = S["loop1"]
+        self.loop2 = S["loop2"]
+        self.opt_method = S["opt_method"]
+        self.hypergrad_method = S["hypergrad_method"]
+
+        self.log_filename = S["log_filename"]
+        self.log_data.update(S)
         self.log_data["LL_dval"] = []
         self.log_data["UL_dval"] = []
         self.log_data["LL_ngrad_y"] = []
@@ -355,6 +362,7 @@ class iteration:
                 self.UL.cost(self.x, self.y)
                 self.UL.ggrad(self.x, self.y)
                 self.x = self.update_value(self.x, self.proj(self.UL.grad["x"], self.x, self.proj_x), self.orth_x)
+            type(self.LL.dval)
             self.log_data["LL_dval"].append(self.LL.dval.item())
             self.log_data["UL_dval"].append(self.UL.dval.item())
             self.log_data["LL_ngrad_y"].append(torch.linalg.norm(self.LL.grad["y"], ord=2).item())
@@ -430,14 +438,18 @@ class iteration:
             self.log_data["time_elapsed"].append(time.time() - start_time)
         self.log_result()
 
-    def run(self, method:str):
-        match method:
-            case "adm":
+    def run(self):
+        match self.opt_method:
+            case "ADM":
+                self.loop1 = 0
+                self.loop2 = 0
                 self.run_as_adm()
-            case "bda_b":
-                self.run_as_bda_backward()
-            case "bda_f":
-                self.run_as_bda_forward()
+            case "BDA":
+                print(self.hypergrad_method)
+                if self.hypergrad_method == "backward":
+                    self.run_as_bda_backward()
+                elif self.hypergrad_method == "forward":
+                    self.run_as_bda_forward()
 
     def log_result(self):
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -445,3 +457,54 @@ class iteration:
             json.dump(self.log_data, file, indent=4)
 
 
+def str2bool(value):
+    if isinstance(value, bool):
+        return value
+    if value.lower() in {'true', 't', 'yes', 'y', '1'}:
+        return True
+    elif value.lower() in {'false', 'f', 'no', 'n', '0'}:
+        return False
+    else:
+        raise argparse.ArgumentTypeError(f"Invalid boolean value: {value}")
+
+def parser():
+    parser = argparse.ArgumentParser(description="None")
+
+    parser.add_argument('--datasets_name', type=str, default="3sources")
+    parser.add_argument('--download_or_not', type=str2bool, default=False)
+    parser.add_argument('--device', type=str, default="cpu")
+    parser.add_argument('--view_num', type=int, default=2)
+    parser.add_argument('-v','--view', type=int, choices=[0,2,4], default=2)
+    parser.add_argument('--seed_num', type=int, default=44)
+
+    parser.add_argument('-o','--opt_method', type=str, choices=["BDA", "RHG", "ADM"],
+                        default="BDA")
+    parser.add_argument('-m','--hypergrad_method', type=str, choices=["backward", "forward"],
+                        default="forward")
+
+    parser.add_argument('-E','--loop0', type=int, default=100)
+    parser.add_argument('--loop1', type=int, default=5)
+    parser.add_argument('--loop2', type=int, default=1)
+
+    parser.add_argument('--s_u', type=float, default=0.5)
+    parser.add_argument('--s_l', type=float, default=0.5)
+    parser.add_argument('--mu', type=float, default=0.5)
+    parser.add_argument('--lam', type=float, default=1)
+    parser.add_argument('--lr', type=float, default=0.01)
+
+    parser.add_argument('--proj_x', type=str2bool, default=True)
+    parser.add_argument('--proj_y', type=str2bool, default=True)
+    parser.add_argument('--orth_x', type=str2bool, default=True)
+    parser.add_argument('--orth_y', type=str2bool, default=True)
+
+    parser.add_argument('--log_filename', type=str, default="./logs/test")
+
+    S0 = parser.parse_args()
+    S = vars(S0)
+    return S
+
+def create_instance(S:dict):
+    DI = data_importation(S)
+    IT = iteration(DI, S)
+
+    return IT
