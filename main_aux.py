@@ -231,6 +231,7 @@ class iteration:
         self.LL = None
         self.lam = None
         self.learning_rate = None
+        self.grad = None
         self.pre_definition()
 
     def pre_definition(self):
@@ -294,3 +295,5 @@ class iteration:
             vector = (self.I-y@y.T) @ vector
         return vector
 
+    def get_gradient(self):
+        self.grad = self.UL.grad(self.x, self.y)
