@@ -457,11 +457,16 @@ class iteration:
                 self.log_data["hypergrad_method"] = ""
                 self.run_as_adm()
             case "BDA":
-                print(self.hypergrad_method)
                 if self.hypergrad_method == "backward":
                     self.run_as_bda_backward()
                 elif self.hypergrad_method == "forward":
                     self.run_as_bda_forward()
+            case "RHG":
+                self.mu = 0
+                self.run_as_bda_backward()
+            case "FHG":
+                self.mu = 0
+                self.run_as_bda_forward()
 
     def log_result(self):
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
