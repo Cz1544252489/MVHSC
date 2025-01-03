@@ -15,7 +15,6 @@ from scipy.io import mmread
 from scipy.sparse import csr_matrix
 from scipy.sparse.linalg import eigsh
 from sklearn.metrics.pairwise import cosine_similarity
-from socks import set_self_blocking
 
 
 class data_importation:
@@ -66,6 +65,7 @@ class data_importation:
 
 
     def download_dataset(self):
+        os.makedirs("./logs", exist_ok=True)
         os.makedirs(self.root_path, exist_ok=True)
         zip_path = os.path.join(self.root_path, "temp.zip")
 
