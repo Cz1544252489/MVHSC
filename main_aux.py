@@ -280,8 +280,7 @@ class iteration:
         self.loop2 = S["loop2"]
         self.opt_method = S["opt_method"]
         self.hypergrad_method = S["hypergrad_method"]
-        self.epsilon["LL"] = S["epsilon"]
-        self.epsilon["UL"] = S["epsilon"]
+        self.epsilon = S["epsilon"]
 
         self.log_filename = S["log_filename"]
         self.log_data.update(S)
@@ -370,7 +369,7 @@ class iteration:
             self.log_data["LL_ngrad_y"].append(torch.linalg.norm(self.LL.grad["y"], ord=2).item())
             self.log_data["UL_ngrad_x"].append(torch.linalg.norm(self.UL.grad["x"], ord=2).item())
             self.log_data["time_elapsed"].append(time.time()-start_time)
-            if self.UL.dval.item() <= self.epsilon["UL"]:
+            if self.UL.dval.item() <= self.epsilon:
                 break
         self.log_result()
 
@@ -404,7 +403,7 @@ class iteration:
             self.log_data["LL_ngrad_y"].append(torch.linalg.norm(self.LL.grad["y"], ord=2).item())
             self.log_data["UL_ngrad_x"].append(torch.linalg.norm(self.UL.grad["x"], ord=2).item())
             self.log_data["time_elapsed"].append(time.time() - start_time)
-            if self.UL.dval.item() <= self.epsilon["UL"]:
+            if self.UL.dval.item() <= self.epsilon:
                 break
         self.log_result()
 
@@ -442,7 +441,7 @@ class iteration:
             self.log_data["LL_ngrad_y"].append(torch.linalg.norm(self.LL.grad["y"], ord=2).item())
             self.log_data["UL_ngrad_x"].append(torch.linalg.norm(self.UL.grad["x"], ord=2).item())
             self.log_data["time_elapsed"].append(time.time() - start_time)
-            if self.UL.dval.item() <= self.epsilon["UL"]:
+            if self.UL.dval.item() <= self.epsilon:
                 break
         self.log_result()
 
