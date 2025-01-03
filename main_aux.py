@@ -362,7 +362,6 @@ class iteration:
                 self.UL.cost(self.x, self.y)
                 self.UL.ggrad(self.x, self.y)
                 self.x = self.update_value(self.x, self.proj(self.UL.grad["x"], self.x, self.proj_x), self.orth_x)
-            type(self.LL.dval)
             self.log_data["LL_dval"].append(self.LL.dval.item())
             self.log_data["UL_dval"].append(self.UL.dval.item())
             self.log_data["LL_ngrad_y"].append(torch.linalg.norm(self.LL.grad["y"], ord=2).item())
@@ -441,8 +440,8 @@ class iteration:
     def run(self):
         match self.opt_method:
             case "ADM":
-                self.loop1 = 0
-                self.loop2 = 0
+                self.loop1 = 1
+                self.loop2 = 1
                 self.run_as_adm()
             case "BDA":
                 print(self.hypergrad_method)
