@@ -32,7 +32,7 @@ class data_importation:
         self.loop_mapping = None
         self.view = None
         self.pre_data_definition(S)
-        np.random.seed()
+        np.random.seed(S["seed_num"])
         if self.dataset_download_or_not:
             self.download_dataset()
         self.splited_data = self.split_data()
