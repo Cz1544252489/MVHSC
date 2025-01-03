@@ -247,7 +247,7 @@ class iteration:
         self.proj_y = None
         self.orth_x = None
         self.orth_y = None
-        self.log_filename = None
+        self.log_prefix = None
         self.log_data = {}
         self.alpha = None
         self.beta = None
@@ -282,8 +282,12 @@ class iteration:
         self.hypergrad_method = S["hypergrad_method"]
         self.epsilon = S["epsilon"]
 
-        self.log_filename = S["log_filename"]
+        self.log_prefix = os.path.join("./logs/",S["log_prefix"])
         self.log_data.update(S)
+        self.log_data["rloop0"] = self.loop0
+        self.log_data["time_cost"] = 0
+        self.log_data["last_LL_dval"] = 0
+        self.log_data["last_UL_dval"] = 0
         self.log_data["LL_dval"] = []
         self.log_data["UL_dval"] = []
         self.log_data["LL_ngrad_y"] = []
@@ -353,6 +357,19 @@ class iteration:
             vector = (self.I-y@y.T) @ vector
         return vector
 
+    def record_data(self, epoch, start_time):
+        self.log_data["LL_dval"].append(self.LL.dval.item())
+        self.log_data["UL_dval"].append(self.UL.dval.item())
+        self.log_data["LL_ngrad_y"].append(torch.linalg.norm(self.LL.grad["y"], ord=2).item())
+        self.log_data["UL_ngrad_x"].append(torch.linalg.norm(self.UL.grad["x"], ord=2).item())
+        # self.log_data["time_elapsed"].append(time.time()-start_time)
+        self.log_data["time_cost"] = time.time() - start_time
+        self.log_data["last_LL_dval"] = self.LL.dval.item()
+        self.log_data["last_UL_dval"] = self.UL.dval.item()
+        if self.UL.dval.item() <= self.epsilon:
+            self.log_data["rloop0"] = epoch
+            return True
+
     def run_as_adm(self):
         start_time = time.time()
         for epoch in range(self.loop0):
@@ -364,12 +381,7 @@ class iteration:
                 self.UL.cost(self.x, self.y)
                 self.UL.ggrad(self.x, self.y)
                 self.x = self.update_value(self.x, self.proj(self.UL.grad["x"], self.x, self.proj_x), self.orth_x)
-            self.log_data["LL_dval"].append(self.LL.dval.item())
-            self.log_data["UL_dval"].append(self.UL.dval.item())
-            self.log_data["LL_ngrad_y"].append(torch.linalg.norm(self.LL.grad["y"], ord=2).item())
-            self.log_data["UL_ngrad_x"].append(torch.linalg.norm(self.UL.grad["x"], ord=2).item())
-            self.log_data["time_elapsed"].append(time.time()-start_time)
-            if self.UL.dval.item() <= self.epsilon:
+            if self.record_data(epoch, start_time):
                 break
         self.log_result()
 
@@ -398,12 +410,7 @@ class iteration:
 
             self.LL.cost(self.x, self.y)
             self.UL.cost(self.x, self.y)
-            self.log_data["LL_dval"].append(self.LL.dval.item())
-            self.log_data["UL_dval"].append(self.UL.dval.item())
-            self.log_data["LL_ngrad_y"].append(torch.linalg.norm(self.LL.grad["y"], ord=2).item())
-            self.log_data["UL_ngrad_x"].append(torch.linalg.norm(self.UL.grad["x"], ord=2).item())
-            self.log_data["time_elapsed"].append(time.time() - start_time)
-            if self.UL.dval.item() <= self.epsilon:
+            if self.record_data(epoch, start_time):
                 break
         self.log_result()
 
@@ -436,12 +443,7 @@ class iteration:
 
             self.LL.cost(self.x, self.y)
             self.UL.cost(self.x, self.y)
-            self.log_data["LL_dval"].append(self.LL.dval.item())
-            self.log_data["UL_dval"].append(self.UL.dval.item())
-            self.log_data["LL_ngrad_y"].append(torch.linalg.norm(self.LL.grad["y"], ord=2).item())
-            self.log_data["UL_ngrad_x"].append(torch.linalg.norm(self.UL.grad["x"], ord=2).item())
-            self.log_data["time_elapsed"].append(time.time() - start_time)
-            if self.UL.dval.item() <= self.epsilon:
+            if self.record_data(epoch, start_time):
                 break
         self.log_result()
 
@@ -450,6 +452,9 @@ class iteration:
             case "ADM":
                 self.loop1 = 1
                 self.loop2 = 1
+                self.log_data["loop1"] = self.loop1
+                self.log_data["loop2"] = self.loop2
+                self.log_data["hypergrad_method"] = ""
                 self.run_as_adm()
             case "BDA":
                 print(self.hypergrad_method)
@@ -460,7 +465,7 @@ class iteration:
 
     def log_result(self):
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        with open(f"{self.log_filename}_{timestamp}.json","w") as file:
+        with open(f"{self.log_prefix}_{timestamp}.json","w") as file:
             json.dump(self.log_data, file, indent=4)
 
 
@@ -505,7 +510,7 @@ def parser():
     parser.add_argument('--orth_x', type=str2bool, default=True)
     parser.add_argument('--orth_y', type=str2bool, default=True)
 
-    parser.add_argument('--log_filename', type=str, default="./logs/test")
+    parser.add_argument('--log_prefix', type=str, default="test")
 
     S0 = parser.parse_args()
     S = vars(S0)
