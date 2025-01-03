@@ -1,4 +1,4 @@
-# Data importation
+# Data importation and iteration
 import argparse
 import json
 import os
@@ -255,6 +255,7 @@ class iteration:
         self.s_u = None
         self.s_l = None
         self.Z = None
+        self.epsilon = None
         self.cl = {}
         self.opt_method = None
         self.hypergrad_method = None
@@ -279,6 +280,8 @@ class iteration:
         self.loop2 = S["loop2"]
         self.opt_method = S["opt_method"]
         self.hypergrad_method = S["hypergrad_method"]
+        self.epsilon["LL"] = S["epsilon"]
+        self.epsilon["UL"] = S["epsilon"]
 
         self.log_filename = S["log_filename"]
         self.log_data.update(S)
@@ -367,6 +370,8 @@ class iteration:
             self.log_data["LL_ngrad_y"].append(torch.linalg.norm(self.LL.grad["y"], ord=2).item())
             self.log_data["UL_ngrad_x"].append(torch.linalg.norm(self.UL.grad["x"], ord=2).item())
             self.log_data["time_elapsed"].append(time.time()-start_time)
+            if self.UL.dval.item() <= self.epsilon["UL"]:
+                break
         self.log_result()
 
     def run_as_bda_forward(self):
@@ -399,6 +404,8 @@ class iteration:
             self.log_data["LL_ngrad_y"].append(torch.linalg.norm(self.LL.grad["y"], ord=2).item())
             self.log_data["UL_ngrad_x"].append(torch.linalg.norm(self.UL.grad["x"], ord=2).item())
             self.log_data["time_elapsed"].append(time.time() - start_time)
+            if self.UL.dval.item() <= self.epsilon["UL"]:
+                break
         self.log_result()
 
     def run_as_bda_backward(self):
@@ -435,6 +442,8 @@ class iteration:
             self.log_data["LL_ngrad_y"].append(torch.linalg.norm(self.LL.grad["y"], ord=2).item())
             self.log_data["UL_ngrad_x"].append(torch.linalg.norm(self.UL.grad["x"], ord=2).item())
             self.log_data["time_elapsed"].append(time.time() - start_time)
+            if self.UL.dval.item() <= self.epsilon["UL"]:
+                break
         self.log_result()
 
     def run(self):
@@ -484,6 +493,7 @@ def parser():
     parser.add_argument('-E','--loop0', type=int, default=100)
     parser.add_argument('--loop1', type=int, default=5)
     parser.add_argument('--loop2', type=int, default=1)
+    parser.add_argument('--epsilon', type=float, default=1e-5)
 
     parser.add_argument('--s_u', type=float, default=0.5)
     parser.add_argument('--s_l', type=float, default=0.5)
