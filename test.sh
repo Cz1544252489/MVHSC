@@ -60,7 +60,7 @@ python main_auxx.py "$log_rootpath" "$log_prefix" opt_method hypergrad_method rl
 }
 
 test(){
-log_rootpath="test"
+log_rootpath="gtest"
 log_prefix="BDA"
 EPOCHS=2
 E=300
@@ -72,7 +72,7 @@ for i in $(seq 1 $EPOCHS); do
         for loop1 in $(seq 1 3 10); do
           for hyme in "backward" "forward"; do
 
-            echo "$i -> $EPOCHS $mu $hyme $loop1"
+            echo "$i -> $EPOCHS $seed_num $mu $orth_x $orth_y $loop1 $hyme"
             python main.py --opt_method "BDA" --hypergrad_method "$hyme" -E "$E" --log_prefix "$log_prefix" \
               --mu "$mu" --orth_x "$orth_x" --orth_y "$orth_y" --seed_num "$seed_num" --loop1 "$loop1" \
               --log_rootpath "$log_rootpath"
