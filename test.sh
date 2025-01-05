@@ -20,7 +20,7 @@ python main_auxx.py "$log_rootpath" "$log_prefix" opt_method rloop0 time_cost la
 }
 
 test(){
-log_rootpath="gtest"
+log_rootpath=$1
 log_prefix="BDA"
 EPOCHS=2
 E=300
