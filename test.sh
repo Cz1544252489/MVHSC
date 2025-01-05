@@ -27,16 +27,16 @@ E=300
 for i in $(seq 1 $EPOCHS); do
   seed_num=$((RANDOM))
   for mu in $(seq 0 0.2 1); do
-    for orth_x in "True" "False"; do
-      for orth_y in "True" "False"; do
-        for loop1 in $(seq 1 3 20); do
-          for hyme in "backward" "forward"; do
-            for lr in 0.01 0.1 1; do
-            echo "$i -> $EPOCHS seed_num:$seed_num mu:$mu ox:$orth_x oy:$orth_y l1:$loop1 hyme:$hyme"
-            python main.py --opt_method "BDA" --hypergrad_method "$hyme" -E "$E" --log_prefix "$log_prefix" \
-              --mu "$mu" --orth_x "$orth_x" --orth_y "$orth_y" --seed_num "$seed_num" --loop1 "$loop1" \
-              --log_rootpath "$log_rootpath" --lr "$lr"
-              done
+    for lr in 0.01 0.1 1; do
+      for orth_x in "True" "False"; do
+        for orth_y in "True" "False"; do
+          for loop1 in $(seq 1 3 20); do
+            for hyme in "backward" "forward"; do
+              echo "$i -> $EPOCHS seed_num:$seed_num mu:$mu lr:$lr ox:$orth_x oy:$orth_y l1:$loop1 hyme:$hyme"
+              python main.py --opt_method "BDA" --hypergrad_method "$hyme" -E "$E" --log_prefix "$log_prefix" \
+                --mu "$mu" --orth_x "$orth_x" --orth_y "$orth_y" --seed_num "$seed_num" --loop1 "$loop1" \
+                --log_rootpath "$log_rootpath" --lr "$lr"
+            done
           done
         done
       done
