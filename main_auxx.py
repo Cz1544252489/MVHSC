@@ -9,8 +9,8 @@ import pandas as pd
 # prefix = "ADM_orth"
 # fields = ["opt_method", "hypergrad_method", "rloop0", "time_cost", "last_UL_dval", "last_LL_dval",
 #           "orth_x", "orth_y"]
-def filte_data(prefix, fields):
-    path = "./logs"
+def filte_data(log_rootpath, prefix, fields):
+    path = os.path.join(".",log_rootpath)
     ends = ".json"
     output_filename = prefix+".txt"
     output_path = os.path.join(path, output_filename)
@@ -40,11 +40,12 @@ def filte_data(prefix, fields):
 
 
 if __name__ == "__main__":
-    prefix = sys.argv[1]
-    fields = sys.argv[2:]
+    log_rootpath = sys.argv[1]
+    prefix = sys.argv[2]
+    fields = sys.argv[3:]
     # prefix = "ADM_orth"
     # fields = ["opt_method", "hypergrad_method", "rloop0", "time_cost", "last_UL_dval", "last_LL_dval",
     #           "orth_x", "orth_y"]
-    filte_data(prefix, fields)
+    filte_data(log_rootpath, prefix, fields)
 
     print("aa")

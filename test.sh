@@ -1,6 +1,6 @@
 test1(){
 log_rootpath="test1"
-log_prefix="ADM2_orth"
+log_prefix="ADM_orth"
 EPOCHS=20
 E=200
 for i in $(seq 1 $EPOCHS); do
@@ -16,7 +16,7 @@ for i in $(seq 1 $EPOCHS); do
    --seed_num "$seed_num" -E "$E" --log_rootpath "$log_rootpath"
 done
   #fields = ["opt_method", "hypergrad_method", "rloop0", "time_cost", "last_UL_dval", "last_LL_dval", "orth_x", "orth_y"]
-python main_auxx.py "$log_prefix" opt_method rloop0 time_cost last_UL_dval last_LL_dval orth_x orth_y
+python main_auxx.py "$log_rootpath" "$log_prefix" opt_method rloop0 time_cost last_UL_dval last_LL_dval orth_x orth_y
 }
 
 test2(){
@@ -36,7 +36,7 @@ for i in $(seq 1 $EPOCHS); do
   python main.py --opt_method "BDA" --hypergrad_method "forward" --log_prefix "${log_prefix}" \
    --orth_x False --orth_y False --seed_num "$seed_num" -E "$E" --log_rootpath "$log_rootpath"
 done
-python main_auxx.py "$log_prefix" opt_method hypergrad_method rloop0 time_cost last_UL_dval last_LL_dval orth_x orth_y
+python main_auxx.py "$log_rootpath" "$log_prefix" opt_method hypergrad_method rloop0 time_cost last_UL_dval last_LL_dval orth_x orth_y
 }
 
 test3(){
@@ -56,5 +56,5 @@ for i in $(seq 1 $EPOCHS); do
   python main.py --opt_method "BDA" --hypergrad_method "backward" --log_prefix "${log_prefix}" \
    --orth_x False --orth_y False --seed_num "$seed_num" -E "$E" --log_rootpath "$log_rootpath"
 done
-python main_auxx.py "$log_prefix" opt_method hypergrad_method rloop0 time_cost last_UL_dval last_LL_dval orth_x orth_y
+python main_auxx.py "$log_rootpath" "$log_prefix" opt_method hypergrad_method rloop0 time_cost last_UL_dval last_LL_dval orth_x orth_y
 }
