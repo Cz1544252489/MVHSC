@@ -23,6 +23,7 @@ class data_importation:
         self.dataset_download_or_not = S["download_or_not"]
         self.dataset_name = S["datasets_name"]
         self.root_path = "./"
+        self.log_rootpath = S["log_rootpath"]
         self.dataset_link = "http://mlg.ucd.ie/files/datasets/3sources.zip"
         self.view_num = None
         self.cluster_num = None
@@ -39,6 +40,8 @@ class data_importation:
         self.Theta, self.x, self.y = self.inital()
 
     def pre_data_definition(self, S):
+        tmp = os.path.join(".", self.log_rootpath)
+        os.makedirs(tmp, exist_ok=True)
         match self.dataset_name:
             case "3sources":
                 self.sources = ['bbc', 'guardian', 'reuters']
@@ -65,7 +68,6 @@ class data_importation:
 
 
     def download_dataset(self):
-        os.makedirs("./logs", exist_ok=True)
         os.makedirs(self.root_path, exist_ok=True)
         zip_path = os.path.join(self.root_path, "temp.zip")
 
@@ -282,7 +284,7 @@ class iteration:
         self.hypergrad_method = S["hypergrad_method"]
         self.epsilon = S["epsilon"]
 
-        self.log_prefix = os.path.join("./logs/",S["log_prefix"])
+        self.log_prefix = os.path.join(S["log_rootpath"],S["log_prefix"])
         self.log_data.update(S)
         self.log_data["rloop0"] = self.loop0
         self.log_data["time_cost"] = 0
@@ -516,6 +518,7 @@ def parser():
     parser.add_argument('--orth_y', type=str2bool, default=True)
 
     parser.add_argument('--log_prefix', type=str, default="test")
+    parser.add_argument('--log_rootpath', type=str, default="logs")
 
     S0 = parser.parse_args()
     S = vars(S0)
