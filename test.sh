@@ -58,3 +58,28 @@ for i in $(seq 1 $EPOCHS); do
 done
 python main_auxx.py "$log_rootpath" "$log_prefix" opt_method hypergrad_method rloop0 time_cost last_UL_dval last_LL_dval orth_x orth_y
 }
+
+test(){
+log_rootpath="test"
+log_prefix="BDA"
+EPOCHS=2
+E=300
+for i in $(seq 1 $EPOCHS); do
+  seed_num=$((RANDOM))
+  for mu in $(seq 0 0.2 1); do
+    for orth_x in "True" "False"; do
+      for orth_y in "True" "False"; do
+        for loop1 in $(seq 1 3 10); do
+          for hyme in "backward" "forward"; do
+
+            echo "$i -> $EPOCHS $mu $hyme $loop1"
+            python main.py --opt_method "BDA" --hypergrad_method "$hyme" -E "$E" --log_prefix "$log_prefix" \
+              --mu "$mu" --orth_x "$orth_x" --orth_y "$orth_y" --seed_num "$seed_num" --loop1 "$loop1" \
+              --log_rootpath "$log_rootpath"
+          done
+        done
+      done
+    done
+  done
+done
+}
