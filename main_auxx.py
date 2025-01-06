@@ -3,6 +3,7 @@
 import json
 import os
 import sys
+from datetime import datetime
 
 import pandas as pd
 
@@ -12,7 +13,8 @@ import pandas as pd
 def filte_data(log_rootpath, prefix, fields):
     path = os.path.join(".",log_rootpath)
     ends = ".json"
-    output_filename = prefix+".txt"
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    output_filename = prefix+timestamp+".txt"
     output_path = os.path.join(path, output_filename)
 
     json_files = [os.path.join(path, f) for f in os.listdir(path) if f.startswith(prefix) and f.endswith(ends)]
