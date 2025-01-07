@@ -34,7 +34,7 @@ def filte_data(log_rootpath, prefix, fields):
                 print(f"Error decoding {field}")
 
     df = pd.DataFrame(data)
-    result = df.groupby(['hypergrad_method','lr','mu','loop1','orth_x', 'orth_y'])[['rloop0','time_cost','last_UL_dval','last_LL_dval']].mean()
+    result = df.groupby(['opt','lr'])[['rloop0','time_cost','last_UL_dval','last_LL_dval']].mean()
     result.to_csv(output_path, sep='\t')
     # df.to_excel(output_path, index=False)
     print(f"Data has been calculated and saved to {output_path}")

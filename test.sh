@@ -1,22 +1,20 @@
 test1(){
-log_rootpath="test1"
-log_prefix="ADM_orth"
-EPOCHS=20
-E=200
+log_rootpath=$1
+log_prefix="MULTI"
+EPOCHS=$2
+E=300
 for i in $(seq 1 $EPOCHS); do
   seed_num=$((RANDOM))
-  echo "$i -> $EPOCHS $seed_num"
-  python main.py --opt_method "ADM" --log_prefix "${log_prefix}" \
-   --seed_num "$seed_num" -E "$E" --log_rootpath "$log_rootpath"
-  python main.py --opt_method "ADM" --orth_x False --log_prefix "${log_prefix}" \
-   --seed_num "$seed_num" -E "$E" --log_rootpath "$log_rootpath"
-  python main.py --opt_method "ADM" --orth_y False --log_prefix "${log_prefix}" \
-   --seed_num "$seed_num" -E "$E" --log_rootpath "$log_rootpath"
-  python main.py --opt_method "ADM" --orth_x False --orth_y False --log_prefix "${log_prefix}" \
-   --seed_num "$seed_num" -E "$E" --log_rootpath "$log_rootpath"
+  for opt in "ADM" "BDA" "BDAG" "RHG" "FHG"; do
+    for lr in 0.01 0.05 0.1; do
+      echo "$i -> $EPOCHS seed_num:$seed_num opt:$opt lr:$lr"
+      python main.py --opt "$opt" -E "$E" --log_prefix "$log_prefix" --log_rootpath "$log_rootpath" --lr "$lr" \
+        --seed_num "$seed_num"
+    done
+  done
 done
   #fields = ["opt_method", "hypergrad_method", "rloop0", "time_cost", "last_UL_dval", "last_LL_dval", "orth_x", "orth_y"]
-python main_auxx.py "$log_rootpath" "$log_prefix" opt_method rloop0 time_cost last_UL_dval last_LL_dval orth_x orth_y
+python main_auxx.py "$log_rootpath" "$log_prefix" opt rloop0 time_cost last_UL_dval last_LL_dval lr E
 }
 
 test(){

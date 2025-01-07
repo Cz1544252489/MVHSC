@@ -280,6 +280,7 @@ class iteration:
         self.loop0 = S["loop0"]
         self.loop1 = S["loop1"]
         self.loop2 = S["loop2"]
+        self.opt = S["opt"]
         self.opt_method = S["opt_method"]
         self.hypergrad_method = S["hypergrad_method"]
         self.epsilon = S["epsilon"]
@@ -295,6 +296,46 @@ class iteration:
         self.log_data["LL_ngrad_y"] = []
         self.log_data["UL_ngrad_x"] = []
         self.log_data["time_elapsed"] = []
+
+        match self.opt:
+            case "ADM":
+                self.opt_method = "ADM"
+                self.hypergrad_method = ""
+                self.loop0 = self.loop0 * 4
+                self.loop1 = 1
+                self.loop2 = 1
+                self.orth_y = False
+            case "BDA":
+                self.opt_method = "BDA"
+                self.hypergrad_method = "backward"
+                self.loop1 = 8
+                self.orth_y = False
+                self.mu = 0.5
+            case "BDAG":
+                self.opt_method = "BDA"
+                self.hypergrad_method = "backward"
+                self.loop1 = 8
+                self.orth_y = True
+                self.mu = 0.5
+            case "RHG":
+                self.opt_method = "BDA"
+                self.hypergrad_method = "backward"
+                self.loop1 = 8
+                self.orth_y = False
+                self.mu = 1
+            case "FHG":
+                self.opt_method = "BDA"
+                self.hypergrad_method = "forward"
+                self.loop1 = 8
+                self.orth_y = False
+                self.mu = 1
+        self.log_data["opt"] = self.opt
+        self.log_data["opt_method"] = self.opt_method
+        self.log_data["hypergrad_method"] = self.hypergrad_method
+        self.log_data["loop0"] = self.loop0
+        self.log_data["loop1"] = self.loop1
+        self.log_data["orth_y"] = self.orth_y
+        self.log_data["mu"] = self.mu
 
     class lower_level:
         def __init__(self, lam, Theta_y):
@@ -463,12 +504,7 @@ class iteration:
                     self.run_as_bda_backward()
                 elif self.hypergrad_method == "forward":
                     self.run_as_bda_forward()
-            case "RHG":
-                self.mu = 0
-                self.run_as_bda_backward()
-            case "FHG":
-                self.mu = 0
-                self.run_as_bda_forward()
+
 
     def log_result(self):
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -500,6 +536,8 @@ def parser():
                         default="BDA")
     parser.add_argument('-m','--hypergrad_method', type=str, choices=["backward", "forward"],
                         default="forward")
+    parser.add_argument('--opt', type=str, choices=["BDA", "BDAG", "ADM", "RHG", "FHG"],
+                        default="BDAG")
 
     parser.add_argument('-E','--loop0', type=int, default=100)
     parser.add_argument('--loop1', type=int, default=5)
