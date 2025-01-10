@@ -307,13 +307,13 @@ class iteration:
                 self.orth_y = False
             case "BDA":
                 self.opt_method = "BDA"
-                self.hypergrad_method = "backward"
+                self.hypergrad_method = "forward"
                 self.loop1 = 8
                 self.orth_y = False
                 self.mu = 0.5
             case "BDAG":
                 self.opt_method = "BDA"
-                self.hypergrad_method = "backward"
+                self.hypergrad_method = "forward"
                 self.loop1 = 8
                 self.orth_y = True
                 self.mu = 0.5

@@ -1,9 +1,27 @@
+test2(){
+log_rootpath=$1
+log_prefix="MULTI-"
+EPOCHS=$2
+E=300
+for i in $(seq 1 "$EPOCHS"); do
+  seed_num=$((RANDOM))
+  for opt in "ADM" "BDA" "BDAG" "RHG" "FHG"; do
+    lr=0.05
+      echo "$i -> $EPOCHS seed_num:$seed_num opt:$opt lr:$lr"
+      python main.py --opt "$opt" -E "$E" --log_prefix "$log_prefix" --log_rootpath "$log_rootpath" --lr "$lr" \
+        --seed_num "$seed_num"
+  done
+done
+python main_auxx.py "$log_rootpath" "$log_prefix" opt rloop0 time_cost last_UL_dval last_LL_dval lr E
+}
+
+
 test1(){
 log_rootpath=$1
 log_prefix="MULTI"
 EPOCHS=$2
 E=300
-for i in $(seq 1 $EPOCHS); do
+for i in $(seq 1 "$EPOCHS"); do
   seed_num=$((RANDOM))
   for opt in "ADM" "BDA" "BDAG" "RHG" "FHG"; do
     for lr in 0.01 0.05 0.1; do
