@@ -306,28 +306,28 @@ class iteration:
                 self.loop1 = 1
                 self.loop2 = 1
                 self.orth_y = False
-            case "BDAF":
+            case "BDAF" | "BDA":
                 self.opt_method = "BDA"
                 self.hypergrad_method = "forward"
-                self.loop1 = 8
+                self.loop1 = 1
                 self.orth_y = False
                 self.mu = 0.5
-            case "BDAGF":
+            case "BDAGF" | "BDAG":
                 self.opt_method = "BDA"
                 self.hypergrad_method = "forward"
-                self.loop1 = 8
+                self.loop1 = 1
                 self.orth_y = True
                 self.mu = 0.5
             case "BDAGB":
                 self.opt_method = "BDA"
                 self.hypergrad_method = "backward"
-                self.loop1 = 8
+                self.loop1 = 1
                 self.orth_y = False
                 self.mu = 0.5
             case "BDAGB":
                 self.opt_method = "BDA"
                 self.hypergrad_method = "backward"
-                self.loop1 = 8
+                self.loop1 = 1
                 self.orth_y = True
                 self.mu = 0.5
             case "RHG":
@@ -552,7 +552,7 @@ def parser():
                         default="BDA")
     parser.add_argument('-m','--hypergrad_method', type=str, choices=["backward", "forward"],
                         default="forward")
-    parser.add_argument('--opt', type=str, choices=["BDAB", "BDAGB", "BDAF", "BDAGF", "ADM", "RHG", "FHG"],
+    parser.add_argument('--opt', type=str, choices=["BDAB", "BDAGB", "BDAF", "BDAGF", "ADM", "RHG", "FHG", "BDA", "BDAG"],
                         default="BDAG")
 
     parser.add_argument('-E','--loop0', type=int, default=100)

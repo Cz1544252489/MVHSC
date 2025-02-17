@@ -5,7 +5,7 @@ EPOCHS=$2
 E=200
 for i in $(seq 1 "$EPOCHS"); do
   seed_num=$((RANDOM))
-  for opt in "ADM" "BDAB" "BDAGB" "BDAF" "BDAGF" "RHG" "FHG"; do
+  for opt in "ADM" "BDAF" "BDAGF" "BDAB" "BDAGB" "RHG" "FHG"; do
     lr=0.05
       echo "$i -> $EPOCHS seed_num:$seed_num opt:$opt lr:$lr"
       python main.py --opt "$opt" -E "$E" --log_prefix "$log_prefix" --log_rootpath "$log_rootpath" --lr "$lr" \
