@@ -289,6 +289,7 @@ class iteration:
         self.log_data.update(S)
         self.log_data["rloop0"] = self.loop0
         self.log_data["time_cost"] = 0
+        self.log_data["time_cost_per_iter"] = 0
         self.log_data["last_LL_dval"] = 0
         self.log_data["last_UL_dval"] = 0
         self.log_data["LL_dval"] = []
@@ -301,19 +302,31 @@ class iteration:
             case "ADM":
                 self.opt_method = "ADM"
                 self.hypergrad_method = ""
-                self.loop0 = self.loop0 * 4
+                self.loop0 = self.loop0
                 self.loop1 = 1
                 self.loop2 = 1
                 self.orth_y = False
-            case "BDA":
+            case "BDAF":
                 self.opt_method = "BDA"
                 self.hypergrad_method = "forward"
                 self.loop1 = 8
                 self.orth_y = False
                 self.mu = 0.5
-            case "BDAG":
+            case "BDAGF":
                 self.opt_method = "BDA"
                 self.hypergrad_method = "forward"
+                self.loop1 = 8
+                self.orth_y = True
+                self.mu = 0.5
+            case "BDAGB":
+                self.opt_method = "BDA"
+                self.hypergrad_method = "backward"
+                self.loop1 = 8
+                self.orth_y = False
+                self.mu = 0.5
+            case "BDAGB":
+                self.opt_method = "BDA"
+                self.hypergrad_method = "backward"
                 self.loop1 = 8
                 self.orth_y = True
                 self.mu = 0.5
@@ -411,7 +424,10 @@ class iteration:
         self.log_data["last_UL_dval"] = self.UL.dval.item()
         if self.UL.dval.item() <= self.epsilon:
             self.log_data["rloop0"] = epoch
+            self.log_data["time_cost_per_iter"] = self.log_data["time_cost"]/epoch
             return True
+        elif self.log_data["rloop0"] < epoch:
+            self.log_data["time_cost_per_iter"] = self.log_data["time_cost"]/self.log_data["rloop0"]
 
     def run_as_adm(self):
         start_time = time.time()
@@ -536,7 +552,7 @@ def parser():
                         default="BDA")
     parser.add_argument('-m','--hypergrad_method', type=str, choices=["backward", "forward"],
                         default="forward")
-    parser.add_argument('--opt', type=str, choices=["BDA", "BDAG", "ADM", "RHG", "FHG"],
+    parser.add_argument('--opt', type=str, choices=["BDAB", "BDAGB", "BDAF", "BDAGF", "ADM", "RHG", "FHG"],
                         default="BDAG")
 
     parser.add_argument('-E','--loop0', type=int, default=100)
