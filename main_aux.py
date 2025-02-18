@@ -333,13 +333,13 @@ class iteration:
             case "RHG":
                 self.opt_method = "BDA"
                 self.hypergrad_method = "backward"
-                self.loop1 = 8
+                self.loop1 = 1
                 self.orth_y = False
                 self.mu = 1
             case "FHG":
                 self.opt_method = "BDA"
                 self.hypergrad_method = "forward"
-                self.loop1 = 8
+                self.loop1 = 1
                 self.orth_y = False
                 self.mu = 1
         self.log_data["opt"] = self.opt
